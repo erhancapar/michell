@@ -1,7 +1,7 @@
 # Modules: how goals, limits and shape rules plug in
 
-Status: design note for stage 0. Nothing here is implemented yet; the first two modules (compliance and mass)
-arrive with the 2D engine in stage 1, and this note changes if they show it is wrong.
+Status: design note. The interface is not implemented yet; the first two modules (compliance and mass) arrive
+with the 2D optimisation loop, and this note changes if they show it is wrong.
 
 ## The picture
 
@@ -63,7 +63,8 @@ the response reads, it solves one extra linear system with `d_state` as the righ
 $$K\,\lambda = \frac{\partial g}{\partial u}, \qquad
 \frac{dg}{d\rho_e} = \frac{\partial g}{\partial \rho_e} - \lambda^{T}\,\frac{\partial K}{\partial \rho_e}\,u ,$$
 
-and then pushes the result back through the filters to get dg/dx. When `d_state` is a multiple of the load
+and then pushes the result back through the filters to get dg/dx. (The engine's `sensitivity` call returns the
+second term with its minus sign, so the driver adds it.) When `d_state` is a multiple of the load
 vector (compliance is the classic case) the adjoint is that multiple of the state and the extra solve is skipped.
 
 ## A filter: a map of the field and its reverse

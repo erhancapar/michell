@@ -1,31 +1,34 @@
 //! Python bindings for the michell engine, built as the extension module `michell._engine`.
 //!
 //! This crate only converts between Python and Rust; the work itself lives in the `michell` crate.
+//!
+//! - `errors`: `michell.EngineError` and the safe way to run an engine call;
+//! - `arrays`: reading NumPy arrays by the boundary rules;
+//! - `grid`: `michell.Grid`;
+//! - `elasticity`: `michell.Elasticity` and `michell.element_stiffness`.
+
+mod arrays;
+mod elasticity;
+mod errors;
+mod grid;
 
 use pyo3::pymodule;
 
 /// The `michell._engine` module that Python imports.
 #[pymodule]
 mod _engine {
-    use numpy::PyReadonlyArray1;
-    use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
+
+    #[pymodule_export]
+    use super::elasticity::{Elasticity, element_stiffness};
+    #[pymodule_export]
+    use super::errors::EngineError;
+    #[pymodule_export]
+    use super::grid::Grid;
 
     /// Return the version of the Rust engine crate.
     #[pyfunction]
     fn engine_version() -> &'static str {
         michell::VERSION
-    }
-
-    /// Sum a 1-D float64 NumPy array in Rust, reading its memory without copying it.
-    #[pyfunction]
-    fn sum_f64(values: PyReadonlyArray1<'_, f64>) -> PyResult<f64> {
-        // A view such as `a[::2]` skips elements in memory, so it is not one plain slice.
-        let slice = values.as_slice().map_err(|_| {
-            PyValueError::new_err(
-                "sum_f64 needs a contiguous array; pass numpy.ascontiguousarray(values)",
-            )
-        })?;
-        Ok(michell::sum(slice))
     }
 }

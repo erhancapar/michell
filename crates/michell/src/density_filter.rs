@@ -161,7 +161,8 @@ mod tests {
 
     #[test]
     fn weights_on_a_row_of_three_elements() {
-        // r = 1.5 h: an element's own weight is 1.5, a direct neighbour's 0.5, two elements away 0.
+        // r = 1.5 h. In units of h an element's own weight is 1.5, a direct neighbour's 0.5, two elements
+        // away 0 (in mm, with h = 2: 3 and 1; only the ratios enter the result).
         let grid = Grid2d::full(3, 1, 2.0, 1.0).unwrap();
         let filter = DensityFilter::new(&grid, 3.0).unwrap();
         let rho = filter.forward(&[1.0, 0.0, 0.0]).unwrap();

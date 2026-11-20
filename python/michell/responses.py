@@ -13,7 +13,8 @@ from michell.row import Row, compared
 
 
 class Compliance:
-    """The weighted sum over the load cases of f . u, in N mm: the work done by the loads.
+    """The weighted sum over the load cases of f . u, in N mm: twice the strain energy stored in the
+    part under each load case (and twice the work of loads applied slowly from zero).
 
     Its derivative with respect to u is the load vector, so its adjoint is the state itself and no extra
     solve is needed.

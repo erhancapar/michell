@@ -42,7 +42,9 @@ def adjoint_state(
     """lambda with K(rho) lambda = d_state, or None when d_state is zero (no contribution).
 
     When d_state is a multiple c of the load vector, lambda is that multiple of the state, c * u, and the
-    extra solve is skipped (compliance is the classic case).
+    extra solve is skipped (compliance is the classic case). This rests on K u = loads, which holds because
+    a ``Problem`` holds its supports at zero displacement; with prescribed non-zero displacements the state
+    would not be a multiple of the adjoint and the solve could not be skipped.
     """
     if not np.any(d_state):
         return None

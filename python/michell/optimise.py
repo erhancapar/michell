@@ -59,7 +59,10 @@ class Pass:
 
 @dataclass(frozen=True)
 class Result:
-    """The design variables and density after the last pass, and the record of every pass."""
+    """The design variables and density after the last pass, and the record of every pass.
+
+    Each record holds the values at the start of its pass, so the last recorded goal belongs to the design
+    before the last update: one update behind ``x`` and ``density``."""
 
     x: np.ndarray
     density: np.ndarray

@@ -10,10 +10,13 @@
 //! Without the Agonizing Pain" (1994), section B3. It stops when the relative residual |b - A x| / |b|
 //! is at most the tolerance, using the residual the method updates step by step.
 //!
-//! Every sum (the dot products) runs in index order with one accumulator, so the same input gives
-//! bit-for-bit the same result.
+//! The sums (the dot products) and the vector updates run on the threads the caller passes (`threads`):
+//! every sum over the fixed blocks of `threads::BLOCK_LENGTH` entries, every update entry by entry. The
+//! steps of the method therefore do not depend on the thread count, and the same input gives bit-for-bit
+//! the same result.
 
 use crate::error::{EngineError, ErrorCode};
+use crate::threads::Threads;
 
 /// How a solve ended: the number of steps taken and the relative residual |b - A x| / |b| reached.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -38,7 +41,9 @@ pub fn check_tolerance(tolerance: f64) -> Result<(), EngineError> {
 /// `multiply(p, q)` must write `q = A p`; `precondition(r, z)` must write `z = M^-1 r` for a symmetric
 /// positive definite M. Both overwrite every entry of their output. More than `max_steps` steps without
 /// reaching `tolerance` give the error `solver_not_converged`, with the step count and the residual.
+/// The method's own sums and vector updates run on `threads`.
 pub fn solve(
+    threads: &Threads,
     mut multiply: impl FnMut(&[f64], &mut [f64]),
     mut precondition: impl FnMut(&[f64], &mut [f64]),
     b: &[f64],
@@ -55,7 +60,7 @@ pub fn solve(
         .with_integer("expected", n)
         .with_integer("got", x.len()));
     }
-    let b_norm = inner(b, b).sqrt();
+    let b_norm = threads.inner(b, b).sqrt();
     if b_norm == 0.0 {
         // A positive definite A has only x = 0 for b = 0.
         x.fill(0.0);
@@ -68,8 +73,9 @@ pub fn solve(
     // r = b - A x
     let mut q = vec![0.0; n];
     multiply(x, &mut q);
-    let mut r: Vec<f64> = b.iter().zip(&q).map(|(b_i, q_i)| b_i - q_i).collect();
-    let mut relative_residual = inner(&r, &r).sqrt() / b_norm;
+    let mut r = vec![0.0; n];
+    threads.update(&mut r, |i, r_i| *r_i = b[i] - q[i]);
+    let mut relative_residual = threads.inner(&r, &r).sqrt() / b_norm;
     if relative_residual <= tolerance {
         return Ok(SolveReport {
             steps: 0,
@@ -80,11 +86,11 @@ pub fn solve(
     let mut z = vec![0.0; n];
     precondition(&r, &mut z);
     let mut p = z.clone();
-    let mut rz = inner(&r, &z);
+    let mut rz = threads.inner(&r, &z);
 
     for step in 1..=max_steps {
         multiply(&p, &mut q);
-        let curvature = inner(&p, &q);
+        let curvature = threads.inner(&p, &q);
         if !(curvature > 0.0 && rz > 0.0) {
             // A x = b has no positive definite A, or M is not positive definite: the method cannot go on.
             return Err(not_converged(
@@ -97,11 +103,9 @@ pub fn solve(
         }
         // Step length alpha = (r . z) / (p . A p); x += alpha p; r -= alpha A p.
         let alpha = rz / curvature;
-        for i in 0..n {
-            x[i] += alpha * p[i];
-            r[i] -= alpha * q[i];
-        }
-        relative_residual = inner(&r, &r).sqrt() / b_norm;
+        threads.update(x, |i, x_i| *x_i += alpha * p[i]);
+        threads.update(&mut r, |i, r_i| *r_i -= alpha * q[i]);
+        relative_residual = threads.inner(&r, &r).sqrt() / b_norm;
         if !relative_residual.is_finite() {
             return Err(not_converged(
                 "the conjugate-gradient method produced a residual that is not a finite number",
@@ -118,12 +122,10 @@ pub fn solve(
         }
         // New search direction p = z + beta p, beta = (r_new . z_new) / (r . z).
         precondition(&r, &mut z);
-        let rz_new = inner(&r, &z);
+        let rz_new = threads.inner(&r, &z);
         let beta = rz_new / rz;
         rz = rz_new;
-        for i in 0..n {
-            p[i] = z[i] + beta * p[i];
-        }
+        threads.update(&mut p, |i, p_i| *p_i = z[i] + beta * *p_i);
     }
     Err(not_converged(
         &format!(
@@ -141,15 +143,6 @@ fn not_converged(message: &str, steps: usize, residual: f64, tolerance: f64) -> 
         .with_integer("steps", steps)
         .with_number("relative_residual", residual)
         .with_number("tolerance", tolerance)
-}
-
-/// a . b, summed in index order.
-fn inner(a: &[f64], b: &[f64]) -> f64 {
-    let mut sum = 0.0;
-    for (a_i, b_i) in a.iter().zip(b) {
-        sum += a_i * b_i;
-    }
-    sum
 }
 
 #[cfg(test)]
@@ -170,6 +163,10 @@ mod tests {
         z.copy_from_slice(r);
     }
 
+    fn one() -> Threads {
+        Threads::new(1).unwrap()
+    }
+
     #[test]
     fn solves_a_small_positive_definite_system() {
         let n = 30;
@@ -177,7 +174,7 @@ mod tests {
         let mut b = vec![0.0; n];
         tridiagonal(&exact, &mut b);
         let mut x = vec![0.0; n];
-        let report = solve(tridiagonal, identity, &b, &mut x, 1e-12, 100).unwrap();
+        let report = solve(&one(), tridiagonal, identity, &b, &mut x, 1e-12, 100).unwrap();
         assert!(report.relative_residual <= 1e-12);
         assert!(report.steps <= n);
         for (x_i, e_i) in x.iter().zip(&exact) {
@@ -200,7 +197,7 @@ mod tests {
         };
         let b = vec![1.0; 10];
         let mut x = vec![0.0; 10];
-        let report = solve(multiply, precondition, &b, &mut x, 1e-14, 5).unwrap();
+        let report = solve(&one(), multiply, precondition, &b, &mut x, 1e-14, 5).unwrap();
         assert_eq!(report.steps, 1);
         assert!((x[9] - 0.01).abs() < 1e-15);
     }
@@ -211,10 +208,10 @@ mod tests {
         let mut b = vec![0.0; 3];
         tridiagonal(&exact, &mut b);
         let mut x = exact.clone();
-        let report = solve(tridiagonal, identity, &b, &mut x, 1e-10, 10).unwrap();
+        let report = solve(&one(), tridiagonal, identity, &b, &mut x, 1e-10, 10).unwrap();
         assert_eq!(report.steps, 0);
         let mut x = vec![5.0; 3];
-        let report = solve(tridiagonal, identity, &[0.0; 3], &mut x, 1e-10, 10).unwrap();
+        let report = solve(&one(), tridiagonal, identity, &[0.0; 3], &mut x, 1e-10, 10).unwrap();
         assert_eq!((report.steps, x), (0, vec![0.0; 3]));
     }
 
@@ -222,7 +219,7 @@ mod tests {
     fn too_few_steps_give_solver_not_converged() {
         let b = vec![1.0; 40];
         let mut x = vec![0.0; 40];
-        let error = solve(tridiagonal, identity, &b, &mut x, 1e-12, 3).unwrap_err();
+        let error = solve(&one(), tridiagonal, identity, &b, &mut x, 1e-12, 3).unwrap_err();
         assert_eq!(error.code, ErrorCode::SolverNotConverged);
         assert_eq!(
             error.details[0],
@@ -238,7 +235,7 @@ mod tests {
             }
         };
         let mut x = vec![0.0; 4];
-        let error = solve(negative, identity, &[1.0; 4], &mut x, 1e-10, 10).unwrap_err();
+        let error = solve(&one(), negative, identity, &[1.0; 4], &mut x, 1e-10, 10).unwrap_err();
         assert_eq!(error.code, ErrorCode::SolverNotConverged);
     }
 
@@ -246,10 +243,30 @@ mod tests {
     fn wrong_settings_are_refused() {
         let mut x = vec![0.0; 3];
         for tolerance in [0.0, 1.0, f64::NAN] {
-            let error = solve(tridiagonal, identity, &[1.0; 3], &mut x, tolerance, 10).unwrap_err();
+            let error = solve(
+                &one(),
+                tridiagonal,
+                identity,
+                &[1.0; 3],
+                &mut x,
+                tolerance,
+                10,
+            )
+            .unwrap_err();
             assert_eq!(error.code, ErrorCode::InvalidInput);
         }
         let mut short = vec![0.0; 2];
-        assert!(solve(tridiagonal, identity, &[1.0; 3], &mut short, 1e-6, 10).is_err());
+        assert!(
+            solve(
+                &one(),
+                tridiagonal,
+                identity,
+                &[1.0; 3],
+                &mut short,
+                1e-6,
+                10
+            )
+            .is_err()
+        );
     }
 }

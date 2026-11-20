@@ -34,11 +34,16 @@ class Elasticity3d(_engine.Elasticity3d):
     next except ``last_solve_report()``. ``element_stress`` returns six components per element: xx, yy,
     zz, yz, zx, xy.
 
+    Every call runs on ``threads`` threads (default 1, at least 1; more threads than processor cores is
+    allowed). The work is shared out so that the numbers do not depend on how many threads there are.
+
     Whether the part is held against every rigid motion is not checked: a part that is not held usually
     ends in ``solver_not_converged``.
     """
 
-    def __new__(cls, grid, held, *, youngs_modulus, poisson_ratio, e_min, penalty, tolerance=1e-6, max_steps=500):
+    def __new__(
+        cls, grid, held, *, youngs_modulus, poisson_ratio, e_min, penalty, tolerance=1e-6, max_steps=500, threads=1
+    ):
         return super().__new__(
             cls,
             grid,
@@ -49,4 +54,5 @@ class Elasticity3d(_engine.Elasticity3d):
             penalty=penalty,
             tolerance=tolerance,
             max_steps=max_steps,
+            threads=threads,
         )

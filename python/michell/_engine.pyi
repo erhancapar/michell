@@ -148,12 +148,14 @@ class Elasticity3d:
     solve runs conjugate gradients with a diagonal (Jacobi) preconditioner until the relative residual
     |b - K u| / |b| is at most ``tolerance``, and raises ``EngineError`` with code
     ``solver_not_converged`` (details: steps, relative_residual) after ``max_steps`` steps. Whether the
-    part is held against every rigid motion is not checked.
+    part is held against every rigid motion is not checked. Every call runs on ``threads`` threads (at
+    least 1); the numbers do not depend on the thread count.
     """
 
     grid: Grid3d
     tolerance: float
     max_steps: int
+    threads: int
 
     def __init__(
         self,
@@ -166,6 +168,7 @@ class Elasticity3d:
         penalty: float,
         tolerance: float = 1e-6,
         max_steps: int = 500,
+        threads: int = 1,
     ) -> None: ...
     def solve(
         self, rho: Vector, loads: Vector, held_values: Vector | None = None, start: Vector | None = None

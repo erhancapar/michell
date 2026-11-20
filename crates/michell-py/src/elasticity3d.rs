@@ -13,6 +13,7 @@ use crate::grid3d::Grid3d;
 
 /// Linear elasticity on one 3D grid with one set of held degrees of freedom, solved by conjugate
 /// gradients with a diagonal (Jacobi) preconditioner on a stiffness matrix that is never assembled.
+/// Every call runs on `threads` threads.
 ///
 /// Material law: E(rho) = e_min + rho^penalty (youngs_modulus - e_min), isotropic.
 #[pyclass(frozen, subclass, module = "michell", name = "Elasticity3d")]
@@ -62,10 +63,12 @@ fn copy_optional(value: Option<&Bound<'_, PyAny>>, name: &str) -> PyResult<Optio
 impl Elasticity3d {
     /// `held` is a float64 array with one entry per degree of freedom (3 per node): 1.0 holds it.
     /// `tolerance` is the relative residual |b - K u| / |b| at which a solve stops; more than `max_steps`
-    /// steps give `solver_not_converged`.
+    /// steps give `solver_not_converged`. `threads` (at least 1) is the number of threads every call
+    /// runs on.
     #[new]
     #[pyo3(signature = (
-        grid, held, *, youngs_modulus, poisson_ratio, e_min, penalty, tolerance = 1e-6, max_steps = 500
+        grid, held, *, youngs_modulus, poisson_ratio, e_min, penalty, tolerance = 1e-6, max_steps = 500,
+        threads = 1
     ))]
     #[allow(clippy::too_many_arguments)] // the signature Python sees; each argument is one setting
     fn new(
@@ -78,9 +81,11 @@ impl Elasticity3d {
         penalty: f64,
         tolerance: f64,
         max_steps: i64,
+        threads: i64,
     ) -> PyResult<Elasticity3d> {
         let held = read_mask(held, "held")?;
         let max_steps = non_negative(py, max_steps, "max_steps")?;
+        let threads = non_negative(py, threads, "threads")?;
         let grid = grid.get().inner.clone();
         let material = michell::Material {
             youngs_modulus,
@@ -89,7 +94,7 @@ impl Elasticity3d {
             penalty,
         };
         let inner = run_engine(py, || {
-            michell::Elasticity3d::new(grid, material, held, tolerance, max_steps)
+            michell::Elasticity3d::new(grid, material, held, tolerance, max_steps, threads)
         })?;
         Ok(Elasticity3d {
             inner,
@@ -230,6 +235,12 @@ impl Elasticity3d {
     #[getter]
     fn max_steps(&self) -> usize {
         self.inner.max_steps()
+    }
+
+    /// The number of threads every call runs on.
+    #[getter]
+    fn threads(&self) -> usize {
+        self.inner.threads()
     }
 
     /// The grid this model was built on (a new handle with the same contents).

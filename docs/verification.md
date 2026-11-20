@@ -4,9 +4,10 @@ This table checks the 2D and the 3D analysis and the 2D optimisation against clo
 an exact integration and an independent assembly of the 3D stiffness matrix, against central finite
 differences, against the published 88-line topology optimisation code (Andreassen et al., Struct. Multidisc.
 Optim. 43, 2011, run in GNU Octave; see `tests/reference/top88/PROVENANCE.txt`) and against published optima
-(Svanberg, Int. J. Numer. Meth. Eng. 24, 1987). The measure, the set-up and the limit of every row were fixed
-before its first result was computed; a limit is never changed to make a row pass. Every limit is an upper
-bound on the measured value. Measured values are rounded to three significant digits; values at the level of
+(Svanberg, Int. J. Numer. Meth. Eng. 24, 1987); it also runs the 3D analysis on several thread counts and
+twice in a row and compares the numbers. The measure, the set-up and the limit of every row were fixed before
+its first result was computed; a limit is never changed to make a row pass. Every limit is an upper bound on
+the measured value. Measured values are rounded to three significant digits; values at the level of
 floating-point round-off may differ in those digits from one machine to another. The code of every row, with
 its set-up, is in `python/michell/verification/`, and continuous integration runs every row on each change.
 
@@ -42,8 +43,9 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 13 | 3D pure shear in the zx plane: shear stress equal to G gamma, other components zero | closed form | 7.78e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (1.23e-15) and the other five components (7.78e-15); 4 x 4 x 4 elements |
 | 13 | 3D pure shear in the xy plane: shear stress equal to G gamma, other components zero | closed form | 4.92e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (1.23e-15) and the other five components (4.92e-15); 4 x 4 x 4 elements |
 | 14 | 3D matrix-free product K(rho) x against the matrix assembled with SciPy | independent computation | 4.59e-16 | ≤ 1e-12 | pass | largest entry difference relative to the largest entry; 7 x 5 x 3 elements, 12 outside the part, random densities, 114 held degrees of freedom |
+| 15 | 3D analysis gives the same numbers on 1, 2, 5 and 12 threads and on a repeated run | repeatability | 0 | ≤ 0 | pass | largest absolute difference from the run on 1 thread, over the product, a complete solve (379 steps to 1e-10: displacements, final residual, step count) and the strain energy, sensitivity and stress of its solution; every array also compared byte for byte; 19 x 15 x 15 elements, 15360 degrees of freedom (15 blocks of a sum), 450 outside the part, random densities, held displacements |
 
-28 passed, 0 failed, 0 not run.
+29 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 

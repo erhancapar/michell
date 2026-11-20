@@ -108,6 +108,26 @@ def test_wrong_input_is_refused_never_converted():
         clamped_block(max_steps=-1)
 
 
+def test_threads_is_an_explicit_setting_and_does_not_change_the_numbers():
+    # 16 x 8 x 8 elements: 4131 degrees of freedom, enough for the work to be shared out.
+    grid, one = clamped_block(16, 8, 8, tolerance=1e-10)
+    assert one.threads == 1
+    rho = np.full(grid.n_elements, 0.7)
+    loads = tip_load(grid)
+    u = one.solve(rho, loads)
+    # More threads than this machine may have cores: the threads take turns.
+    _, many = clamped_block(16, 8, 8, tolerance=1e-10, threads=12)
+    assert many.threads == 12
+    assert many.solve(rho, loads).tobytes() == u.tobytes()
+    assert many.last_solve_report() == one.last_solve_report()
+    with pytest.raises(michell.EngineError) as error:
+        clamped_block(threads=0)
+    assert error.value.code == "invalid_input" and error.value.details["threads"] == 0
+    with pytest.raises(michell.EngineError) as error:
+        clamped_block(threads=-1)
+    assert error.value.code == "invalid_input"
+
+
 def test_element_stiffness_3d_is_24_by_24_and_symmetric():
     k = michell.element_stiffness_3d(1.0, 0.3, 1.0)
     assert k.shape == (24, 24)

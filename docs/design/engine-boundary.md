@@ -1,9 +1,9 @@
 # The engine boundary: what is Rust, what is Python
 
 Status: design note, kept in step with the code. The 2D analysis, the density filter, the OC update, the
-MMA update and `dot` exist. The 3D analysis exists on one thread (`Grid3d`, `Elasticity3d`): its solver is
-conjugate gradients with a diagonal preconditioner, and it makes no check that a part is held (see
-"Errors"). The rest of the table below is planned.
+MMA update and `dot` exist. The 3D analysis exists (`Grid3d`, `Elasticity3d`) and runs on as many threads as
+it is given: its solver is conjugate gradients with a diagonal preconditioner, and it makes no check that a
+part is held (see "Errors"). The rest of the table below is planned.
 
 ## The rule
 
@@ -75,6 +75,12 @@ core and leaves its threads waiting at full load between calls. The optimisation
 products from the engine's `dot`, on one thread; the measurement that moved them is in the header of
 `crates/michell/src/dot.rs`.
 
+The 3D analysis takes the thread count as an argument of the object, `Elasticity3d(..., threads=1)`: at least
+1, and a count above the number of processor cores is allowed (the threads then take turns). The engine keeps
+one pool of worker threads per distinct count (from the `rayon` crate), started the first time that count is
+asked for and shared by every object that asks for the same count. The 2D analysis, the filter and the
+optimiser updates run on one thread.
+
 ## Same input, same output
 
 The promise: **on the same machine, with the same thread count, the same input gives bit-for-bit the same
@@ -82,6 +88,12 @@ output.** To keep it, parallel sums are split into fixed blocks that are added i
 does not depend on which thread finishes first. Across different machines or thread counts the results agree
 within a tolerance that the verification table states; they are not promised to be bit-identical, because
 processors differ in how they round.
+
+The 3D analysis is built so that its sums do not depend on which thread runs which block: every sum runs over
+blocks of a fixed length that does not depend on the thread count, each block summed in index order and the
+block sums added in order. Every other step writes separate pieces of its output (the entries of one node, the
+value of one element), each computed with the same arithmetic whichever thread runs it. Verification row 15
+compares the numbers of runs on several thread counts.
 
 ## Errors
 

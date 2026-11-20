@@ -1,5 +1,5 @@
-"""Verification rows 11 to 14: the 3D analysis against an exact integration, closed forms and an
-independently assembled stiffness matrix.
+"""Verification rows 11 to 15: the 3D analysis against an exact integration, closed forms and an
+independently assembled stiffness matrix, and the same numbers on any thread count.
 
 Each row's measure, set-up and limit were fixed before any result was computed. Unless a row says
 otherwise: unit cube elements, Poisson ratio 0.3, solves to a relative residual of 1e-10.
@@ -13,7 +13,7 @@ import numpy as np
 
 from michell._engine import element_stiffness_3d
 from michell.analysis3d import Elasticity3d, Grid3d
-from michell.row import CLOSED_FORM, INDEPENDENT_COMPUTATION, Row, checked, g3, not_run
+from michell.row import CLOSED_FORM, INDEPENDENT_COMPUTATION, REPEATABILITY, Row, checked, g3, not_run
 
 E, NU = 210000.0, 0.3
 SOLVE_TOLERANCE = 1e-10
@@ -300,5 +300,87 @@ def row_14_product() -> list[Row]:
             1e-12,
             f"largest entry difference relative to the largest entry; {nx} x {ny} x {nz} elements, "
             f"{int((~active).sum())} outside the part, random densities, {int(held.sum())} held degrees of freedom",
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Row 15. Limit: runs on 1, 2, 5 and 12 threads, and a repeated run on 12 threads, give bit-for-bit the same
+# numbers: the largest absolute difference from the run on 1 thread is exactly 0, and every array is equal
+# byte for byte. Compared: the product K(rho) x; a complete solve to 1e-10 (its displacements, its final
+# relative residual and its step count: the solver's sums decide every step length, so a sum that differed
+# would change them); the per-element strain energy, sensitivity and stress of that solution. Set-up: 19 x
+# 15 x 15 elements, so that the sums span more blocks than the largest thread count and every thread gets
+# work; the elements with i >= 13 and j >= 10 outside the part; random densities between 0.3 and 1 (E_min =
+# 1e-9 E); the face x = 0 held at a prescribed displacement (so the held values enter the right-hand side)
+# and a load spread over the far face of the part (x = 19, j <= 10); a random vector x.
+
+ROW_15_THREADS = (1, 2, 5, 12)
+# The length of the blocks the engine's sums run over (`BLOCK_LENGTH` in crates/michell/src/threads.rs),
+# used here only to state in the note how many blocks the set-up spans.
+SUM_BLOCK_LENGTH = 1024
+
+
+def row_15_thread_count() -> list[Row]:
+    nx, ny, nz = 19, 15, 15
+    i, j = np.meshgrid(np.arange(nx), np.arange(ny))  # x fastest within each layer
+    active = np.tile(~((i >= 13) & (j >= 10)).ravel(), nz)
+    grid = Grid3d(nx, ny, nz, 1.0, active=active)
+    random = np.random.default_rng(15)
+    rho = random.uniform(0.3, 1.0, grid.n_elements)
+    x = random.standard_normal(grid.n_dofs)
+    held = np.zeros(grid.n_dofs, dtype=bool)
+    held_values = np.zeros(grid.n_dofs)
+    loads = np.zeros(grid.n_dofs)
+    for k, j_ in itertools.product(range(nz + 1), range(ny + 1)):
+        node = grid.node(0, j_, k)
+        held[3 * node : 3 * node + 3] = True
+        held_values[3 * node : 3 * node + 3] = [1e-4 * j_, -2e-4 * k, 5e-5]  # a stretch and a shift
+        if j_ <= 10:  # the far face, where it belongs to the part
+            loads[3 * grid.node(nx, j_, k) + 2] = -1.0 / (11 * (nz + 1))
+
+    def outputs(model) -> dict[str, np.ndarray]:
+        u = model.solve(rho, loads, held_values=held_values)
+        report = model.last_solve_report()
+        return {
+            "product": model.product(rho, x),
+            "displacements": u,
+            "relative residual": np.array([report["relative_residual"]]),
+            "steps": np.array([float(report["steps"])]),
+            "strain energy": model.element_strain_energy(rho, u),
+            "sensitivity": model.sensitivity(rho, u, u),
+            "stress": model.element_stress(rho, u),
+        }
+
+    runs = []
+    for threads in ROW_15_THREADS:
+        model = Elasticity3d(
+            grid, held, youngs_modulus=E, poisson_ratio=NU, e_min=1e-9 * E, penalty=3.0,
+            tolerance=SOLVE_TOLERANCE, max_steps=5000, threads=threads,
+        )  # fmt: skip
+        runs.append(outputs(model))
+    runs.append(outputs(model))  # the same object on 12 threads, called again
+
+    first = runs[0]
+    largest, identical = 0.0, True
+    for run in runs[1:]:
+        for name, values in first.items():
+            largest = max(largest, float(np.abs(run[name] - values).max()))
+            identical = identical and run[name].tobytes() == values.tobytes()
+    blocks = -(-grid.n_dofs // SUM_BLOCK_LENGTH)
+    threads = ", ".join(str(t) for t in ROW_15_THREADS[:-1]) + f" and {ROW_15_THREADS[-1]}"
+    return [
+        Row(
+            15,
+            f"3D analysis gives the same numbers on {threads} threads and on a repeated run",
+            REPEATABILITY,
+            largest,
+            0.0,
+            bool(identical and largest == 0.0),
+            f"largest absolute difference from the run on 1 thread, over the product, a complete solve "
+            f"({int(first['steps'][0])} steps to {SOLVE_TOLERANCE:g}: displacements, final residual, step count) "
+            f"and the strain energy, sensitivity and stress of its solution; every array also compared byte for "
+            f"byte; {nx} x {ny} x {nz} elements, {grid.n_dofs} degrees of freedom ({blocks} blocks of a sum), "
+            f"{int((~active).sum())} outside the part, random densities, held displacements",
         )
     ]

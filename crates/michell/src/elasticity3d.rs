@@ -7,7 +7,13 @@
 //!
 //! The product is computed node by node: the three entries of K x that belong to a node gather the
 //! contributions of the (at most eight) active elements around it. Each node writes only its own three
-//! entries, so the nodes can be shared out between threads without two threads writing the same entry.
+//! entries, so the nodes are shared out between threads without two threads writing the same entry.
+//!
+//! Threads: the object runs on the number of threads it was built with (`threads`). The product, the
+//! diagonal, the right-hand side, the per-element quantities and the solver's sums and vector updates all
+//! run on them, by the rules of `threads`: every node or element is computed by one thread with the same
+//! arithmetic whichever thread it is, and every sum runs over fixed blocks. No result depends on the
+//! thread count.
 //!
 //! Held degrees of freedom, and those that touch no active element, act as identity rows and columns:
 //! the product leaves them as they are and no other row sees them. The solve moves the held
@@ -25,6 +31,7 @@ use crate::error::EngineError;
 use crate::grid3d::Grid3d;
 use crate::hex8;
 use crate::material::Material;
+use crate::threads::Threads;
 
 /// Which columns of K a gather over a node's elements takes.
 #[derive(Clone, Copy, PartialEq)]
@@ -50,21 +57,25 @@ pub struct Elasticity3d {
     tolerance: f64,
     /// More steps than this give `solver_not_converged`.
     max_steps: usize,
+    /// The threads every call runs on.
+    threads: Threads,
 }
 
 impl Elasticity3d {
     /// `held` has one entry per degree of freedom (3 per node: x, y, z); `true` holds it. `tolerance` is
     /// the relative residual at which a solve stops, `max_steps` the number of conjugate-gradient steps
-    /// allowed.
+    /// allowed, `threads` the number of threads every call runs on (at least 1).
     pub fn new(
         grid: Grid3d,
         material: Material,
         held: Vec<bool>,
         tolerance: f64,
         max_steps: usize,
+        threads: usize,
     ) -> Result<Elasticity3d, EngineError> {
         material.check()?;
         conjugate_gradient::check_tolerance(tolerance)?;
+        let threads = Threads::new(threads)?;
         if held.len() != grid.n_dofs() {
             return Err(EngineError::invalid_input(
                 "held needs one entry per degree of freedom (3 per node)",
@@ -90,6 +101,7 @@ impl Elasticity3d {
             k_unit,
             tolerance,
             max_steps,
+            threads,
         })
     }
 
@@ -107,6 +119,11 @@ impl Elasticity3d {
 
     pub fn max_steps(&self) -> usize {
         self.max_steps
+    }
+
+    /// The number of threads every call runs on.
+    pub fn threads(&self) -> usize {
+        self.threads.count()
     }
 
     /// Solves K(rho) u = loads. Loads on held degrees of freedom are ignored (they become reactions).
@@ -175,13 +192,13 @@ impl Elasticity3d {
         self.check_dof_vector(u, "u")?;
         self.check_dof_vector(lambda, "lambda")?;
         let mut result = vec![0.0; self.grid.n_elements()];
-        for (element, value) in result.iter_mut().enumerate() {
+        self.threads.update(&mut result, |element, value| {
             if self.grid.is_active(element) {
                 let dofs = self.grid.element_dofs(element);
                 let product = self.unit_energy_product(&dofs, lambda, u);
                 *value = -self.material.modulus_derivative(rho[element]) * product;
             }
-        }
+        });
         Ok(result)
     }
 
@@ -191,14 +208,14 @@ impl Elasticity3d {
         self.check_density(rho)?;
         self.check_dof_vector(u, "u")?;
         let mut result = vec![0.0; self.grid.n_elements()];
-        for (element, value) in result.iter_mut().enumerate() {
+        self.threads.update(&mut result, |element, value| {
             if self.grid.is_active(element) {
                 let dofs = self.grid.element_dofs(element);
                 *value = 0.5
                     * self.material.modulus(rho[element])
                     * self.unit_energy_product(&dofs, u, u);
             }
-        }
+        });
         Ok(result)
     }
 
@@ -209,31 +226,33 @@ impl Elasticity3d {
         self.check_density(rho)?;
         self.check_dof_vector(u, "u")?;
         let mut result = vec![0.0; 6 * self.grid.n_elements()];
-        for element in 0..self.grid.n_elements() {
-            if self.grid.is_active(element) {
-                let dofs = self.grid.element_dofs(element);
-                let u_e = dofs.map(|dof| u[dof]);
-                let modulus = self.material.modulus(rho[element]);
-                let stress =
-                    hex8::centre_stress(modulus, self.material.poisson_ratio, self.grid.h(), &u_e);
-                result[6 * element..6 * element + 6].copy_from_slice(&stress);
-            }
-        }
+        self.threads
+            .for_each_piece(&mut result, 6, |element, values| {
+                if self.grid.is_active(element) {
+                    let dofs = self.grid.element_dofs(element);
+                    let u_e = dofs.map(|dof| u[dof]);
+                    let modulus = self.material.modulus(rho[element]);
+                    let stress = hex8::centre_stress(
+                        modulus,
+                        self.material.poisson_ratio,
+                        self.grid.h(),
+                        &u_e,
+                    );
+                    values.copy_from_slice(&stress);
+                }
+            });
         Ok(result)
     }
 
     /// The modulus E(rho_e) of every element, 0 for inactive elements (they add nothing to K).
     fn moduli(&self, rho: &[f64]) -> Vec<f64> {
-        rho.iter()
-            .enumerate()
-            .map(|(element, &r)| {
-                if self.grid.is_active(element) {
-                    self.material.modulus(r)
-                } else {
-                    0.0
-                }
-            })
-            .collect()
+        let mut moduli = vec![0.0; rho.len()];
+        self.threads.update(&mut moduli, |element, modulus| {
+            if self.grid.is_active(element) {
+                *modulus = self.material.modulus(rho[element]);
+            }
+        });
+        moduli
     }
 
     /// The three entries of K x that belong to `node`, summed over its active elements and, in each, over
@@ -267,37 +286,38 @@ impl Elasticity3d {
         block
     }
 
-    /// out = K x with identity rows and columns for the fixed degrees of freedom.
+    /// out = K x with identity rows and columns for the fixed degrees of freedom. Each node writes its
+    /// own three entries.
     fn multiply(&self, moduli: &[f64], x: &[f64], out: &mut [f64]) {
-        for node in 0..self.grid.n_nodes() {
+        self.threads.for_each_piece(out, 3, |node, values| {
             let block = self.gather_node(moduli, node, x, Columns::Free);
-            for (c, value) in block.iter().enumerate() {
+            for (c, value) in values.iter_mut().enumerate() {
                 let dof = 3 * node + c;
-                out[dof] = if self.fixed[dof] { x[dof] } else { *value };
+                *value = if self.fixed[dof] { x[dof] } else { block[c] };
             }
-        }
+        });
     }
 
     /// The inverse of the diagonal of K (1 on fixed degrees of freedom): the Jacobi preconditioner.
     fn inverse_diagonal(&self, moduli: &[f64]) -> Vec<f64> {
         let mut inverse = vec![1.0; self.grid.n_dofs()];
-        for node in 0..self.grid.n_nodes() {
-            for c in 0..3 {
-                let dof = 3 * node + c;
-                if self.fixed[dof] {
-                    continue;
-                }
-                let mut diagonal = 0.0;
-                for (place, element) in self.grid.node_elements(node).iter().enumerate() {
-                    if let Some(element) = *element {
-                        diagonal += moduli[element] * self.k_unit[3 * place + c][3 * place + c];
+        self.threads
+            .for_each_piece(&mut inverse, 3, |node, values| {
+                for (c, value) in values.iter_mut().enumerate() {
+                    if self.fixed[3 * node + c] {
+                        continue;
                     }
+                    let mut diagonal = 0.0;
+                    for (place, element) in self.grid.node_elements(node).iter().enumerate() {
+                        if let Some(element) = *element {
+                            diagonal += moduli[element] * self.k_unit[3 * place + c][3 * place + c];
+                        }
+                    }
+                    // A free degree of freedom touches at least one active element, whose modulus is at
+                    // least E_min > 0, so the diagonal is positive.
+                    *value = 1.0 / diagonal;
                 }
-                // A free degree of freedom touches at least one active element, whose modulus is at
-                // least E_min > 0, so the diagonal is positive.
-                inverse[dof] = 1.0 / diagonal;
-            }
-        }
+            });
         inverse
     }
 
@@ -336,15 +356,15 @@ impl Elasticity3d {
 
         // b = f - K_free,held * held on the free degrees of freedom, 0 on the fixed ones.
         let mut b = vec![0.0; n_dofs];
-        for node in 0..self.grid.n_nodes() {
+        self.threads.for_each_piece(&mut b, 3, |node, values| {
             let lifted = self.gather_node(&moduli, node, &held, Columns::Fixed);
-            for (c, lifted_c) in lifted.iter().enumerate() {
+            for (c, value) in values.iter_mut().enumerate() {
                 let dof = 3 * node + c;
                 if !self.fixed[dof] {
-                    b[dof] = rhs[dof] - lifted_c;
+                    *value = rhs[dof] - lifted[c];
                 }
             }
-        }
+        });
         // The first guess on the free degrees of freedom; the fixed ones start (and stay) at zero.
         let mut x = vec![0.0; n_dofs];
         if let Some(values) = start {
@@ -357,11 +377,11 @@ impl Elasticity3d {
 
         let inverse_diagonal = self.inverse_diagonal(&moduli);
         let report = conjugate_gradient::solve(
+            &self.threads,
             |p, q| self.multiply(&moduli, p, q),
             |r, z| {
-                for dof in 0..r.len() {
-                    z[dof] = inverse_diagonal[dof] * r[dof];
-                }
+                self.threads
+                    .update(z, |dof, z_dof| *z_dof = inverse_diagonal[dof] * r[dof]);
             },
             &b,
             &mut x,
@@ -468,7 +488,7 @@ mod tests {
         active[11] = false;
         let grid = Grid3d::new(3, 2, 2, 1.5, active).unwrap();
         let held = clamped_left(&grid);
-        let model = Elasticity3d::new(grid.clone(), unit_material(), held, 1e-10, 100).unwrap();
+        let model = Elasticity3d::new(grid.clone(), unit_material(), held, 1e-10, 100, 1).unwrap();
         let rho = uneven_density(12);
         let n = grid.n_dofs();
 
@@ -510,7 +530,7 @@ mod tests {
     fn compliance_is_twice_the_strain_energy_and_sensitivity_matches_differences() {
         let grid = Grid3d::full(4, 2, 2, 2.0).unwrap();
         let held = clamped_left(&grid);
-        let model = Elasticity3d::new(grid.clone(), unit_material(), held, 1e-13, 1000).unwrap();
+        let model = Elasticity3d::new(grid.clone(), unit_material(), held, 1e-13, 1000, 1).unwrap();
         let rho = uneven_density(16);
         let mut loads = vec![0.0; grid.n_dofs()];
         loads[3 * grid.node_index(4, 2, 2) + 2] = -1.0;
@@ -550,7 +570,7 @@ mod tests {
                 held[3 * node..3 * node + 3].fill(true);
             }
         }
-        let model = Elasticity3d::new(grid.clone(), unit_material(), held, 1e-12, 100).unwrap();
+        let model = Elasticity3d::new(grid.clone(), unit_material(), held, 1e-12, 100, 1).unwrap();
         let rho = vec![1.0; 27];
         let zeros = vec![0.0; grid.n_dofs()];
         let (u, _) = model.solve(&rho, &zeros, Some(&values), None).unwrap();
@@ -567,7 +587,7 @@ mod tests {
         let grid = Grid3d::full(4, 2, 2, 1.0).unwrap();
         let held = clamped_left(&grid);
         let model =
-            Elasticity3d::new(grid.clone(), unit_material(), held.clone(), 1e-8, 500).unwrap();
+            Elasticity3d::new(grid.clone(), unit_material(), held.clone(), 1e-8, 500, 1).unwrap();
         let rho = vec![1.0; 16];
         let mut loads = vec![0.0; grid.n_dofs()];
         loads[3 * grid.node_index(4, 1, 1) + 1] = 1.0;
@@ -576,7 +596,7 @@ mod tests {
         let (_, again) = model.solve(&rho, &loads, None, Some(&u)).unwrap();
         assert_eq!(again.steps, 0);
 
-        let short = Elasticity3d::new(grid, unit_material(), held, 1e-8, 2).unwrap();
+        let short = Elasticity3d::new(grid, unit_material(), held, 1e-8, 2, 1).unwrap();
         let error = short.solve(&rho, &loads, None, None).unwrap_err();
         assert_eq!(error.code, ErrorCode::SolverNotConverged);
     }
@@ -593,6 +613,7 @@ mod tests {
             clamped_left(&grid),
             1e-10,
             200,
+            1,
         )
         .unwrap();
         let rho = vec![0.5; 8];
@@ -608,14 +629,78 @@ mod tests {
     }
 
     #[test]
+    fn results_do_not_depend_on_the_thread_count() {
+        // 24 x 12 x 12 elements (12675 degrees of freedom, more than twelve blocks of a sum), a corner
+        // outside the part, uneven densities, the face x = 0 held at a prescribed displacement. The
+        // verification table checks the same on a solve to 1e-10 (row 15).
+        let (nx, ny, nz) = (24, 12, 12);
+        let mut active = vec![true; nx * ny * nz];
+        for k in 0..nz {
+            for j in 6..ny {
+                for i in 18..nx {
+                    active[i + nx * (j + ny * k)] = false;
+                }
+            }
+        }
+        let grid = Grid3d::new(nx, ny, nz, 1.0, active).unwrap();
+        let held = clamped_left(&grid);
+        let values: Vec<f64> = (0..grid.n_dofs())
+            .map(|d| if d % 3 == 2 { 1e-3 } else { 0.0 })
+            .collect();
+        let mut loads = vec![0.0; grid.n_dofs()];
+        loads[3 * grid.node_index(nx, 0, nz) + 2] = -1.0;
+        let rho = uneven_density(grid.n_elements());
+        let x: Vec<f64> = (0..grid.n_dofs())
+            .map(|d| (0.37 * d as f64).cos())
+            .collect();
+        let run = |threads: usize| {
+            let model = Elasticity3d::new(
+                grid.clone(),
+                unit_material(),
+                held.clone(),
+                0.5,
+                500,
+                threads,
+            )
+            .unwrap();
+            let product = model.product(&rho, &x).unwrap();
+            // A solve stopped at a loose tolerance: a few steps, so that the test stays short in a
+            // debug build, but every step's sums, updates and products run on the threads.
+            let (u, report) = model.solve(&rho, &loads, Some(&values), None).unwrap();
+            let stress = model.element_stress(&rho, &u).unwrap();
+            let sensitivity = model.sensitivity(&rho, &u, &x).unwrap();
+            let bits = |v: &[f64]| v.iter().map(|value| value.to_bits()).collect::<Vec<u64>>();
+            let residual = report.relative_residual.to_bits();
+            (
+                bits(&product),
+                bits(&u),
+                bits(&stress),
+                bits(&sensitivity),
+                report.steps,
+                residual,
+            )
+        };
+        let one = run(1);
+        assert!(one.4 >= 3);
+        for threads in [2, 5, 12] {
+            assert!(run(threads) == one, "{threads} threads");
+        }
+    }
+
+    #[test]
     fn wrong_input_is_refused() {
         let grid = Grid3d::full(2, 1, 1, 1.0).unwrap();
         let held = clamped_left(&grid);
         assert!(
-            Elasticity3d::new(grid.clone(), unit_material(), vec![false; 5], 1e-6, 10).is_err()
+            Elasticity3d::new(grid.clone(), unit_material(), vec![false; 5], 1e-6, 10, 1).is_err()
         );
-        assert!(Elasticity3d::new(grid.clone(), unit_material(), held.clone(), 0.0, 10).is_err());
-        let model = Elasticity3d::new(grid.clone(), unit_material(), held, 1e-6, 10).unwrap();
+        assert!(
+            Elasticity3d::new(grid.clone(), unit_material(), held.clone(), 0.0, 10, 1).is_err()
+        );
+        let no_threads =
+            Elasticity3d::new(grid.clone(), unit_material(), held.clone(), 1e-6, 10, 0);
+        assert_eq!(no_threads.unwrap_err().code, ErrorCode::InvalidInput);
+        let model = Elasticity3d::new(grid.clone(), unit_material(), held, 1e-6, 10, 1).unwrap();
         let loads = vec![0.0; grid.n_dofs()];
         assert!(model.solve(&[1.0, 2.0], &loads, None, None).is_err());
         assert!(model.solve(&[1.0, 1.0], &loads[1..], None, None).is_err());

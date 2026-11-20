@@ -8,19 +8,28 @@ all and writes the table.
 Rows 6, 8 and 10 compare with the output of the 88-line code kept in the repository under
 ``tests/reference``; they take that folder as an argument and report "not run" when it is absent. Row 9
 solves its problems a second time with SciPy and row 14 assembles the 3D stiffness matrix with SciPy; both
-report "not run" when SciPy is not installed.
+report "not run" when SciPy is not installed. Row 15 runs the 3D analysis on several thread counts.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from michell.row import CLOSED_FORM, GRADIENT, INDEPENDENT_COMPUTATION, PUBLISHED_OPTIMUM, REFERENCE_CODE, Row
+from michell.row import (
+    CLOSED_FORM,
+    GRADIENT,
+    INDEPENDENT_COMPUTATION,
+    PUBLISHED_OPTIMUM,
+    REFERENCE_CODE,
+    REPEATABILITY,
+    Row,
+)
 from michell.verification.analysis3d_rows import (
     row_11_element_matrix,
     row_12_patch_test,
     row_13_pure_shear,
     row_14_product,
+    row_15_thread_count,
 )
 from michell.verification.analysis_rows import (
     row_1_element_matrix,
@@ -36,7 +45,7 @@ from michell.verification.optimisation_rows import row_7_gradients, row_8_mbb_wi
 
 
 def all_rows(reference: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 14 in order. ``reference`` is the folder that holds ``top88/`` (in the repository:
+    """Runs rows 1 to 15 in order. ``reference`` is the folder that holds ``top88/`` (in the repository:
     ``tests/reference``)."""
     rows = []
     rows += row_1_element_matrix()
@@ -54,6 +63,7 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_12_patch_test()
     rows += row_13_pure_shear()
     rows += row_14_product()
+    rows += row_15_thread_count()
     return rows
 
 
@@ -64,6 +74,7 @@ __all__ = [
     "MBB_CASES",
     "PUBLISHED_OPTIMUM",
     "REFERENCE_CODE",
+    "REPEATABILITY",
     "Row",
     "all_rows",
     "row_1_element_matrix",
@@ -80,4 +91,5 @@ __all__ = [
     "row_12_patch_test",
     "row_13_pure_shear",
     "row_14_product",
+    "row_15_thread_count",
 ]

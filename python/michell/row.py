@@ -15,6 +15,7 @@ GRADIENT = "gradient"
 REFERENCE_CODE = "reference code"
 PUBLISHED_OPTIMUM = "published optimum"
 INDEPENDENT_COMPUTATION = "independent computation"
+REPEATABILITY = "repeatability"
 
 
 @dataclass(frozen=True)

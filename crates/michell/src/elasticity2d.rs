@@ -3,8 +3,8 @@
 //!
 //! Material law: modified SIMP, E(rho) = E_min + rho^p (E_0 - E_min) (Sigmund, "Morphology-based black
 //! and white filters for topology optimization", 2007; the form used by the 88-line code of Andreassen et
-//! al., 2011). Every element has the stiffness E(rho_e) * K_unit, where K_unit is the `quad4` matrix of
-//! modulus 1.
+//! al., 2011), kept in `material`, which the 3D analysis shares. Every element has the stiffness
+//! E(rho_e) * K_unit, where K_unit is the `quad4` matrix of modulus 1.
 //!
 //! Held degrees of freedom: their row and column are left out of K and a 1 is put on the diagonal, so
 //! the solve returns the held value there. A degree of freedom that touches no active element is held
@@ -19,50 +19,8 @@
 use crate::banded_cholesky::BandedMatrix;
 use crate::error::{EngineError, ErrorCode};
 use crate::grid2d::Grid2d;
+use crate::material::Material;
 use crate::quad4;
-
-/// The material constants and the SIMP penalty.
-#[derive(Clone, Copy, Debug)]
-pub struct Material {
-    /// E_0, the modulus of solid material, MPa.
-    pub youngs_modulus: f64,
-    pub poisson_ratio: f64,
-    /// E_min, the modulus left in an empty element (keeps K invertible), MPa. Must be above 0.
-    pub e_min: f64,
-    /// p, the SIMP penalty.
-    pub penalty: f64,
-}
-
-impl Material {
-    fn check(&self) -> Result<(), EngineError> {
-        quad4::check_elastic_constants(self.youngs_modulus, self.poisson_ratio)?;
-        let e0 = self.youngs_modulus;
-        if !(self.e_min.is_finite() && self.e_min > 0.0 && self.e_min < e0) {
-            return Err(EngineError::invalid_input(
-                "e_min must be above 0 and below youngs_modulus",
-            )
-            .with_number("e_min", self.e_min)
-            .with_number("youngs_modulus", e0));
-        }
-        if !(self.penalty.is_finite() && self.penalty >= 1.0) {
-            return Err(
-                EngineError::invalid_input("penalty must be a number of at least 1")
-                    .with_number("penalty", self.penalty),
-            );
-        }
-        Ok(())
-    }
-
-    /// E(rho) = E_min + rho^p (E_0 - E_min).
-    pub fn modulus(&self, rho: f64) -> f64 {
-        self.e_min + rho.powf(self.penalty) * (self.youngs_modulus - self.e_min)
-    }
-
-    /// dE/drho = p rho^(p-1) (E_0 - E_min).
-    pub fn modulus_derivative(&self, rho: f64) -> f64 {
-        self.penalty * rho.powf(self.penalty - 1.0) * (self.youngs_modulus - self.e_min)
-    }
-}
 
 /// The check that the part is held (in `new`, every element at modulus 1) calls a pivot zero when it is
 /// not above this fraction of its row's original diagonal.

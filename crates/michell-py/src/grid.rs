@@ -16,7 +16,7 @@ pub struct Grid {
 }
 
 /// A whole number that must not be negative, for counts and grid positions.
-fn non_negative(py: Python<'_>, value: i64, name: &str) -> PyResult<usize> {
+pub fn non_negative(py: Python<'_>, value: i64, name: &str) -> PyResult<usize> {
     usize::try_from(value)
         .map_err(|_| invalid_input(py, format!("{name} must not be negative; got {value}")))
 }

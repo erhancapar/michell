@@ -1,7 +1,9 @@
 # The engine boundary: what is Rust, what is Python
 
 Status: design note, kept in step with the code. The 2D analysis, the density filter, the OC update, the
-MMA update and `dot` exist; the rest of the table below is planned.
+MMA update and `dot` exist. The 3D analysis exists on one thread (`Grid3d`, `Elasticity3d`): its solver is
+conjugate gradients with a diagonal preconditioner, and it makes no check that a part is held (see
+"Errors"). The rest of the table below is planned.
 
 ## The rule
 
@@ -86,7 +88,8 @@ processors differ in how they round.
 The engine returns errors as values. The bindings turn them into `michell.EngineError` with three fields: a
 stable `code` (for programs and agents), a `message` (for people), and `details` (the numbers involved).
 Examples: `invalid_input` for a wrong array or setting; `singular_system` when a part is not held (found when
-the `Elasticity` object is built, because it does not depend on the density); `solver_not_converged` with the
+the 2D `Elasticity` object is built, because it does not depend on the density; `Elasticity3d` makes no such
+check, and a part that is not held usually ends in `solver_not_converged`); `solver_not_converged` with the
 residual and step count (the MMA subproblem; the iterative solver in 3D).
 A Rust panic is a bug in michell: it is caught at the boundary and reported as `internal_error`, and it never
 brings down the Python process.

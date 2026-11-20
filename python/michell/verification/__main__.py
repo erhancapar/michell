@@ -16,7 +16,7 @@ from michell.verification.page import exit_status, render, result_text
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m michell.verification",
-        description="Run the verification rows of the 2D engine and write the verification table.",
+        description="Run the verification rows of the engine and write the verification table.",
     )
     parser.add_argument("--reference", type=Path, help="the folder that holds top88/ (tests/reference)")
     parser.add_argument("--out", type=Path, help="write the Markdown page here (default: print it)")

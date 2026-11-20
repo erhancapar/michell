@@ -6,6 +6,8 @@
 //! - `arrays`: reading NumPy arrays by the boundary rules;
 //! - `grid`: `michell.Grid`;
 //! - `elasticity`: `michell.Elasticity` and `michell.element_stiffness`;
+//! - `grid3d`: `michell.Grid3d`;
+//! - `elasticity3d`: `michell.Elasticity3d` and `michell.element_stiffness_3d`;
 //! - `filter`: `michell.DensityFilter`;
 //! - `oc`: `michell.Oc`, the optimality-criteria update;
 //! - `mma`: `michell.Mma`, the method of moving asymptotes;
@@ -14,9 +16,11 @@
 mod arrays;
 mod dot;
 mod elasticity;
+mod elasticity3d;
 mod errors;
 mod filter;
 mod grid;
+mod grid3d;
 mod mma;
 mod oc;
 
@@ -32,11 +36,15 @@ mod _engine {
     #[pymodule_export]
     use super::elasticity::{Elasticity, element_stiffness};
     #[pymodule_export]
+    use super::elasticity3d::{Elasticity3d, element_stiffness_3d};
+    #[pymodule_export]
     use super::errors::EngineError;
     #[pymodule_export]
     use super::filter::DensityFilter;
     #[pymodule_export]
     use super::grid::Grid;
+    #[pymodule_export]
+    use super::grid3d::Grid3d;
     #[pymodule_export]
     use super::mma::Mma;
     #[pymodule_export]

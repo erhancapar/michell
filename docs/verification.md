@@ -1,13 +1,14 @@
 # Verification
 
-This table checks the 2D engine against closed-form solutions, against central finite differences, against
-the published 88-line topology optimisation code (Andreassen et al., Struct. Multidisc. Optim. 43, 2011, run
-in GNU Octave; see `tests/reference/top88/PROVENANCE.txt`) and against published optima (Svanberg, Int. J.
-Numer. Meth. Eng. 24, 1987). The measure, the set-up and the limit of every row were fixed before its first
-result was computed; a limit is never changed to make a row pass. Every limit is an upper bound on the measured
-value. Measured values are rounded to three significant digits; values at the level of floating-point
-round-off may differ in those digits from one machine to another. The code of every row, with its set-up, is
-in `python/michell/verification/`, and continuous integration runs every row on each change.
+This table checks the 2D and the 3D analysis and the 2D optimisation against closed-form solutions, against
+an exact integration and an independent assembly of the 3D stiffness matrix, against central finite
+differences, against the published 88-line topology optimisation code (Andreassen et al., Struct. Multidisc.
+Optim. 43, 2011, run in GNU Octave; see `tests/reference/top88/PROVENANCE.txt`) and against published optima
+(Svanberg, Int. J. Numer. Meth. Eng. 24, 1987). The measure, the set-up and the limit of every row were fixed
+before its first result was computed; a limit is never changed to make a row pass. Every limit is an upper
+bound on the measured value. Measured values are rounded to three significant digits; values at the level of
+floating-point round-off may differ in those digits from one machine to another. The code of every row, with
+its set-up, is in `python/michell/verification/`, and continuous integration runs every row on each change.
 
 Version: michell 0.0.1 (engine 0.0.1).
 
@@ -33,8 +34,16 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 9 | MMA on Svanberg's two-bar truss: worst limit f_i - 1 at the optimum | published optimum | -6.62e-11 | ≤ 1e-06 | pass | every limit written as f_i <= 1 in the published scaling |
 | 10 | MBB beam 60 x 20 with MMA: final compliance over OC's after the same passes | reference code | 0.999 | ≤ 1.02 | pass | 144 passes each; compliance MMA 233 N mm, OC 234 N mm |
 | 10 | MBB beam 60 x 20 with MMA: volume excess mass / bound - 1 | reference code | -8.66e-10 | ≤ 1e-06 | pass | larger of the last pass (-8.89e-10) and the returned design (-8.66e-10) |
+| 11 | 3D element stiffness matrix against an exact integration of the shape functions | closed form | 3.93e-16 | ≤ 1e-12 | pass | largest entry difference relative to the largest entry, worst of 3 sets of modulus, Poisson ratio and side |
+| 11 | 3D element stiffness matrix is symmetric | closed form | 5.9e-17 | ≤ 1e-14 | pass | largest difference between K and its transpose relative to the largest entry, worst of 3 sets of modulus, Poisson ratio and side |
+| 11 | 3D element stiffness matrix has exactly six zero eigenvalues (the rigid motions) | closed form | 2.08e-16 | < 1e-10 | pass | the sixth smallest eigenvalue relative to the largest, worst of 3 sets of modulus, Poisson ratio and side; the seventh must be above the limit: its smallest relative value is 0.0426 |
+| 12 | 3D patch test: a linear displacement field and its uniform stress | closed form | 5.01e-10 | ≤ 1e-08 | pass | relative error, the larger of the inside displacements (1.08e-10) and the stress (5.01e-10); 4 x 3 x 5 elements, 20 conjugate-gradient steps |
+| 13 | 3D pure shear in the yz plane: shear stress equal to G gamma, other components zero | closed form | 6.74e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (8.8e-16) and the other five components (6.74e-15); 4 x 4 x 4 elements |
+| 13 | 3D pure shear in the zx plane: shear stress equal to G gamma, other components zero | closed form | 7.78e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (1.23e-15) and the other five components (7.78e-15); 4 x 4 x 4 elements |
+| 13 | 3D pure shear in the xy plane: shear stress equal to G gamma, other components zero | closed form | 4.92e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (1.23e-15) and the other five components (4.92e-15); 4 x 4 x 4 elements |
+| 14 | 3D matrix-free product K(rho) x against the matrix assembled with SciPy | independent computation | 4.59e-16 | ≤ 1e-12 | pass | largest entry difference relative to the largest entry; 7 x 5 x 3 elements, 12 outside the part, random densities, 114 held degrees of freedom |
 
-20 passed, 0 failed, 0 not run.
+28 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 
@@ -42,6 +51,7 @@ From the repository, with the package and SciPy installed:
 
     python -m michell.verification --reference tests/reference --out docs/verification.md
 
-Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`, and row 9 solves its problems a
-second time with SciPy; without them those rows are listed as not run. The command exits with status 1 when a
-row fails (and, with `--require-all`, when a row was not run). The test suite runs the same functions.
+Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`; row 9 solves its problems a
+second time with SciPy, and row 14 assembles the 3D stiffness matrix with SciPy. Without them those rows are
+listed as not run. The command exits with status 1 when a row fails (and, with `--require-all`, when a row
+was not run). The test suite runs the same functions.

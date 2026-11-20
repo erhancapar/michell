@@ -107,6 +107,98 @@ class Elasticity:
         """Stress at each element's centre with modulus E(rho_e), MPa; shape (n_elements, 3):
         sx, sy, txy. Inactive elements give zeros."""
 
+def element_stiffness_3d(youngs_modulus: float, poisson_ratio: float, h: float) -> npt.NDArray[np.float64]:
+    """The 24 x 24 stiffness matrix of one cube element of side h (8 nodes, 2 x 2 x 2 Gauss points).
+
+    Nodes: the face z = 0 counter-clockwise from (0, 0, 0) seen from above, then the face z = h in the
+    same order; degrees of freedom u, v, w of node 0, then of node 1, and so on.
+    """
+
+class Grid3d:
+    """A grid of nx by ny by nz cube elements of side h mm.
+
+    Element (i, j, k) has index i + nx*(j + ny*k); node (i, j, k) has index i + (nx+1)*(j + (ny+1)*k);
+    node n has its x, y and z displacement at degrees of freedom 3n, 3n+1 and 3n+2. ``active`` (one entry
+    per element, 1.0 inside the part, 0.0 outside) defaults to all ones.
+    """
+
+    nx: int
+    ny: int
+    nz: int
+    h: float
+    voxel_volume_mm3: float
+    """Volume of one element, h ** 3."""
+    n_elements: int
+    n_nodes: int
+    n_dofs: int
+    active: Vector
+
+    def __init__(self, nx: int, ny: int, nz: int, h: float, active: Vector | None = None) -> None: ...
+    def node(self, i: int, j: int, k: int) -> int:
+        """Index of node (i, j, k), 0 <= i <= nx, 0 <= j <= ny, 0 <= k <= nz."""
+
+    def element(self, i: int, j: int, k: int) -> int:
+        """Index of element (i, j, k), 0 <= i < nx, 0 <= j < ny, 0 <= k < nz."""
+
+class Elasticity3d:
+    """Linear elasticity on a 3D grid, E(rho) = e_min + rho^penalty (youngs_modulus - e_min), isotropic.
+
+    ``held`` has one entry per degree of freedom (three per node), 1.0 to hold it. A degree of freedom
+    that touches no active element is held at zero as well. The stiffness matrix is never assembled; a
+    solve runs conjugate gradients with a diagonal (Jacobi) preconditioner until the relative residual
+    |b - K u| / |b| is at most ``tolerance``, and raises ``EngineError`` with code
+    ``solver_not_converged`` (details: steps, relative_residual) after ``max_steps`` steps. Whether the
+    part is held against every rigid motion is not checked.
+    """
+
+    grid: Grid3d
+    tolerance: float
+    max_steps: int
+
+    def __init__(
+        self,
+        grid: Grid3d,
+        held: Vector,
+        *,
+        youngs_modulus: float,
+        poisson_ratio: float,
+        e_min: float,
+        penalty: float,
+        tolerance: float = 1e-6,
+        max_steps: int = 500,
+    ) -> None: ...
+    def solve(
+        self, rho: Vector, loads: Vector, held_values: Vector | None = None, start: Vector | None = None
+    ) -> Vector:
+        """Displacements u with K(rho) u = loads; loads on held degrees of freedom are ignored.
+
+        ``held_values`` (one entry per degree of freedom) sets the displacement of the held ones; without
+        it they stay at zero. ``start`` is the first guess of u (its held entries are ignored); without it
+        the solve starts from zero.
+        """
+
+    def adjoint(self, rho: Vector, rhs: Vector, start: Vector | None = None) -> Vector:
+        """lambda with K(rho) lambda = rhs, every held degree of freedom at zero."""
+
+    def last_solve_report(self) -> dict[str, int | float] | None:
+        """``{"steps": ..., "relative_residual": ...}`` of the last ``solve`` or ``adjoint``; None before
+        the first one and after one that raised an error."""
+
+    def product(self, rho: Vector, x: Vector) -> Vector:
+        """K(rho) x without assembling K; held degrees of freedom and those that touch no active element
+        act as identity rows and columns."""
+
+    def sensitivity(self, rho: Vector, u: Vector, lam: Vector) -> Vector:
+        """Per element, -lam_e^T (dK/drho_e) u_e; for compliance (lam = u) the whole gradient."""
+
+    def element_strain_energy(self, rho: Vector, u: Vector) -> Vector:
+        """Per element, 1/2 u_e^T K_e(rho) u_e in N mm; the compliance is twice the sum."""
+
+    def element_stress(self, rho: Vector, u: Vector) -> npt.NDArray[np.float64]:
+        """Stress at each element's centre with modulus E(rho_e), MPa; shape (n_elements, 6):
+        sxx, syy, szz, syz, szx, sxy (shear components with G times the engineering shear strain).
+        Inactive elements give zeros."""
+
 class DensityFilter:
     """The density filter with cone weights, over the active elements of a grid:
     rho_e = sum_j w_ej x_j / sum_j w_ej, w_ej = max(0, radius - distance between centres), radius in mm.

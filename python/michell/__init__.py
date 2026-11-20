@@ -4,6 +4,8 @@ The package holds:
 
 - the 2D analysis: ``Grid`` (square elements), ``Elasticity`` (plane stress: solve, adjoint, sensitivity,
   element strain energy and stress) and ``element_stiffness``;
+- the 3D analysis: ``Grid3d`` (cube elements), ``Elasticity3d`` (the same calls, solved by conjugate
+  gradients on a stiffness matrix that is never assembled) and ``element_stiffness_3d``;
 - the problem: ``Material``, ``LoadCase``, ``Problem``;
 - the module interface (``docs/design/modules.md``): ``Response``, ``Filter``, ``Partials`` and the
   read-only ``Evaluation``, with ``Row`` (``michell.row``), the result of one check, which a module's
@@ -30,9 +32,11 @@ from michell._engine import (
     Oc,
     dot,
     element_stiffness,
+    element_stiffness_3d,
     engine_version,
 )
 from michell.analysis import Elasticity, Grid
+from michell.analysis3d import Elasticity3d, Grid3d
 from michell.evaluation import Evaluation
 from michell.filters import DensityFilter
 from michell.gradient_check import GradientCheck, check_gradient, check_on_small_problem
@@ -50,11 +54,13 @@ __all__ = [
     "Compliance",
     "DensityFilter",
     "Elasticity",
+    "Elasticity3d",
     "EngineError",
     "Evaluation",
     "Filter",
     "GradientCheck",
     "Grid",
+    "Grid3d",
     "Limit",
     "LoadCase",
     "Mass",
@@ -74,6 +80,7 @@ __all__ = [
     "check_on_small_problem",
     "dot",
     "element_stiffness",
+    "element_stiffness_3d",
     "engine_version",
     "optimise",
 ]

@@ -7,14 +7,15 @@ from collections.abc import Sequence
 from michell.row import Row, g3
 
 INTRODUCTION = """\
-This table checks the 2D engine against closed-form solutions, against central finite differences, against
-the published 88-line topology optimisation code (Andreassen et al., Struct. Multidisc. Optim. 43, 2011, run
-in GNU Octave; see `tests/reference/top88/PROVENANCE.txt`) and against published optima (Svanberg, Int. J.
-Numer. Meth. Eng. 24, 1987). The measure, the set-up and the limit of every row were fixed before its first
-result was computed; a limit is never changed to make a row pass. Every limit is an upper bound on the measured
-value. Measured values are rounded to three significant digits; values at the level of floating-point
-round-off may differ in those digits from one machine to another. The code of every row, with its set-up, is
-in `python/michell/verification/`, and continuous integration runs every row on each change."""
+This table checks the 2D and the 3D analysis and the 2D optimisation against closed-form solutions, against
+an exact integration and an independent assembly of the 3D stiffness matrix, against central finite
+differences, against the published 88-line topology optimisation code (Andreassen et al., Struct. Multidisc.
+Optim. 43, 2011, run in GNU Octave; see `tests/reference/top88/PROVENANCE.txt`) and against published optima
+(Svanberg, Int. J. Numer. Meth. Eng. 24, 1987). The measure, the set-up and the limit of every row were fixed
+before its first result was computed; a limit is never changed to make a row pass. Every limit is an upper
+bound on the measured value. Measured values are rounded to three significant digits; values at the level of
+floating-point round-off may differ in those digits from one machine to another. The code of every row, with
+its set-up, is in `python/michell/verification/`, and continuous integration runs every row on each change."""
 
 REGENERATING = """\
 ## Regenerating this page
@@ -23,9 +24,10 @@ From the repository, with the package and SciPy installed:
 
     python -m michell.verification --reference tests/reference --out docs/verification.md
 
-Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`, and row 9 solves its problems a
-second time with SciPy; without them those rows are listed as not run. The command exits with status 1 when a
-row fails (and, with `--require-all`, when a row was not run). The test suite runs the same functions."""
+Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`; row 9 solves its problems a
+second time with SciPy, and row 14 assembles the 3D stiffness matrix with SciPy. Without them those rows are
+listed as not run. The command exits with status 1 when a row fails (and, with `--require-all`, when a row
+was not run). The test suite runs the same functions."""
 
 
 def cell(text: str) -> str:

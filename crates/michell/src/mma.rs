@@ -6,16 +6,18 @@
 //! move from one iteration to the next), and K. Svanberg, "MMA and GCMMA: two methods for nonlinear
 //! optimization" (2007), whose form of the method this file follows. The parts, in the order of `update`:
 //!
-//! Part 1. The problem form (2007 note): the limits are written f_i(x) <= 0 and the problem is
+//! Part 1. The problem form (2007 note, eq. 1.1): the limits are written f_i(x) <= 0 and the problem is
 //!
 //!   minimise f_0(x) + a0 z + sum_i (c_i y_i + d_i y_i^2 / 2)
 //!   subject to f_i(x) - a_i z - y_i <= 0,  x_min <= x <= x_max,  y >= 0,  z >= 0.
 //!
-//! With a0 = 1, a_i = 0 and c_i large, y_i and z are zero at the solution of a problem whose limits can
-//! be met, and this is the original problem; y_i > 0 shows a limit that cannot be met.
+//! With a0 = 1, a_i = 0, d_i = 1 and c_i large (the note's choice for the standard problem, eq. 1.2; its
+//! section 2 names 1000 as reasonably large), y_i and z are zero at the solution of a problem whose
+//! limits can be met, and this is the original problem; y_i > 0 shows a limit that cannot be met.
 //!
-//! Part 2. The asymptotes l_j < x_j < u_j (2007 note; the rule goes back to the 1987 paper). In the
-//! first two iterations l_j = x_j - 0.5 (x_max_j - x_min_j) and u_j = x_j + 0.5 (x_max_j - x_min_j).
+//! Part 2. The asymptotes l_j < x_j < u_j (2007 note, eqs 3.11 to 3.14; the rule goes back to the 1987
+//! paper). In the first two iterations l_j = x_j - 0.5 (x_max_j - x_min_j) and
+//! u_j = x_j + 0.5 (x_max_j - x_min_j).
 //! Later, with x' and x'' the designs of the two previous iterations and l', u' the previous asymptotes,
 //!
 //!   l_j = x_j - gamma_j (x'_j - l'_j),    u_j = x_j + gamma_j (u'_j - x'_j),
@@ -24,13 +26,13 @@
 //! 1.2 if > 0 (it moves steadily: they open out), 1 if = 0; then l_j is kept between
 //! x_j - 10 (x_max_j - x_min_j) and x_j - 0.01 (x_max_j - x_min_j), and u_j likewise above x_j.
 //!
-//! Part 3. The move limits (2007 note):
+//! Part 3. The move limits (2007 note, eqs 3.6 and 3.7):
 //!
 //!   alpha_j = max( x_min_j,  l_j + 0.1 (x_j - l_j),  x_j - 0.5 (x_max_j - x_min_j) )
 //!   beta_j  = min( x_max_j,  u_j - 0.1 (u_j - x_j),  x_j + 0.5 (x_max_j - x_min_j) )
 //!
-//! Part 4. The approximation of each function f_i at the current design x (1987 paper, with the small
-//! additions of the 2007 note that make it strictly convex):
+//! Part 4. The approximation of each function f_i at the current design x (1987 paper; in the form of
+//! the 2007 note, eqs 3.2 to 3.5, whose small additions make it strictly convex):
 //!
 //!   f_i(x) ~ g_i(x) = sum_j ( p_ij / (u_j - x_j) + q_ij / (x_j - l_j) ) + r_i
 //!   p_ij = (u_j - x_j)^2 ( 1.001 (df_i/dx_j)+ + 0.001 (df_i/dx_j)- + 1e-5 / (x_max_j - x_min_j) )
@@ -44,8 +46,8 @@
 //! the primal-dual interior-point method of the 2007 note: see `mma_subproblem.rs`. Its x is the next
 //! design.
 //!
-//! The formulas above are written from the method's definition in the two papers; no other program's
-//! code was used.
+//! The formulas and constants above were checked against the 2007 note. They are written from the
+//! method's definition in the two papers; no other program's code was used.
 
 use crate::error::EngineError;
 use crate::mma_subproblem::{self, Subproblem};

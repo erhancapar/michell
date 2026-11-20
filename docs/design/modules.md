@@ -1,7 +1,8 @@
 # Modules: how goals, limits and shape rules plug in
 
 Status: design note, kept in step with the code. The interface, the `Compliance` and `Mass` responses, the
-2D optimisation loop and both optimisers below exist.
+optimisation loop on a 2D or a 3D grid (a `Problem` picks the analysis from the grid's type), the density
+filter (2D), the Helmholtz filter (3D) and both optimisers below exist.
 
 ## The picture
 
@@ -77,8 +78,8 @@ class Filter(Protocol):
     def self_test(self) -> Sequence[Row]: ...
 ```
 
-Filters are applied in the order the problem file lists them. The density filter, the projection and symmetry
-are built into the engine; a manufacturing rule such as "no overhang steeper than 45 degrees" is one more filter.
+Filters are applied in the order the problem file lists them. The density filter (cone weights, 2D), the
+Helmholtz filter (a PDE filter, 3D), the projection and symmetry are built into the engine; a manufacturing rule such as "no overhang steeper than 45 degrees" is one more filter.
 
 ## Two small examples
 
@@ -120,8 +121,9 @@ class Optimiser(Protocol):
 ```
 
 Two optimisers implement it: the classic optimality-criteria update (`OptimalityCriteria`: one limit, kept to
-reproduce the published 88-line result) and the method of moving asymptotes (`MovingAsymptotes`: any number of
-limits). MMA's constants are absolute numbers, so `MovingAsymptotes` hands it the goal divided by its value at
+reproduce the published 88-line result; it measures the limit on the filtered field inside its bisection, so it
+takes only the 2D density filter, on a 2D grid) and the method of moving asymptotes (`MovingAsymptotes`: any
+number of limits, any filter, 2D or 3D). MMA's constants are absolute numbers, so `MovingAsymptotes` hands it the goal divided by its value at
 the first pass and each limit as its relative excess over its bound, `(value - at_most) / |at_most|`; both
 scales stay fixed for the run. The goal's value first reaches the optimiser in `update`, so its scale is taken
 there, not in `start`.

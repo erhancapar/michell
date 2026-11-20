@@ -9,6 +9,7 @@
 //! - `grid3d`: `michell.Grid3d`;
 //! - `elasticity3d`: `michell.Elasticity3d` and `michell.element_stiffness_3d`;
 //! - `filter`: `michell.DensityFilter`;
+//! - `helmholtz_filter`: `michell.HelmholtzFilter`;
 //! - `oc`: `michell.Oc`, the optimality-criteria update;
 //! - `mma`: `michell.Mma`, the method of moving asymptotes;
 //! - `dot`: `michell.dot`, the dot product of two vectors.
@@ -21,6 +22,7 @@ mod errors;
 mod filter;
 mod grid;
 mod grid3d;
+mod helmholtz_filter;
 mod mma;
 mod oc;
 
@@ -45,6 +47,8 @@ mod _engine {
     use super::grid::Grid;
     #[pymodule_export]
     use super::grid3d::Grid3d;
+    #[pymodule_export]
+    use super::helmholtz_filter::HelmholtzFilter;
     #[pymodule_export]
     use super::mma::Mma;
     #[pymodule_export]

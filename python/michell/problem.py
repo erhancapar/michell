@@ -1,4 +1,5 @@
-"""A 2D plane-stress problem: the grid, its supports, the material, the load cases and the SIMP law."""
+"""A problem: the grid, its supports, the material, the load cases and the SIMP law, with the analysis that
+belongs to the grid (2D plane stress on a ``Grid``, 3D elasticity on a ``Grid3d``)."""
 
 from __future__ import annotations
 
@@ -7,7 +8,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from michell import _engine
 from michell.analysis import Elasticity
+from michell.analysis3d import Elasticity3d
 
 
 @dataclass(frozen=True)
@@ -34,11 +37,20 @@ class LoadCase:
 
 
 class Problem:
-    """A 2D plane-stress problem.
+    """A problem on a 2D or a 3D grid; the analysis follows from the grid's type.
+
+    On a ``Grid`` the analysis is plane stress, solved directly (``michell.Elasticity``); on a ``Grid3d`` it is
+    3D elasticity, solved by conjugate gradients with a multigrid preconditioner (``michell.Elasticity3d``).
+    Either is kept as ``problem.elasticity``.
 
     ``held`` has one entry per degree of freedom (a boolean array or float64 0.0 / 1.0); a held degree of
     freedom stays at zero. The modulus of an element of density rho is
     E(rho) = e_min + rho^penalty (E_0 - e_min) (modified SIMP); ``e_min`` defaults to 1e-9 E_0.
+
+    ``threads`` (the number of threads every solve runs on), ``solver_tolerance`` (the relative residual at
+    which a solve stops) and ``solver_max_steps`` (the steps allowed before ``solver_not_converged``) are
+    settings of the 3D analysis; on a 2D grid they must keep their defaults, since the direct solver has
+    none of them.
     """
 
     def __init__(
@@ -50,6 +62,9 @@ class Problem:
         *,
         penalty: float = 3.0,
         e_min: float | None = None,
+        threads: int = 1,
+        solver_tolerance: float = 1e-6,
+        solver_max_steps: int = 500,
     ):
         names = [case.name for case in cases]
         if len(set(names)) != len(names):
@@ -65,14 +80,51 @@ class Problem:
         self.cases = tuple(cases)
         self.penalty = penalty
         self.e_min = 1e-9 * material.youngs_modulus if e_min is None else e_min
-        self.elasticity = Elasticity(
-            grid,
-            held,
+        self.is_3d = isinstance(grid, _engine.Grid3d)
+        constants = dict(
             youngs_modulus=material.youngs_modulus,
             poisson_ratio=material.poisson_ratio,
             e_min=self.e_min,
             penalty=penalty,
         )
+        if self.is_3d:
+            self.elasticity = Elasticity3d(
+                grid, held, **constants, tolerance=solver_tolerance, max_steps=solver_max_steps, threads=threads
+            )
+        else:
+            given = {
+                name: value
+                for name, value, default in (
+                    ("threads", threads, 1),
+                    ("solver_tolerance", solver_tolerance, 1e-6),
+                    ("solver_max_steps", solver_max_steps, 500),
+                )
+                if value != default
+            }
+            if given:
+                raise ValueError(
+                    f"{', '.join(given)} only apply to a 3D grid (Grid3d): the 2D analysis solves directly "
+                    f"on one thread; got {given}"
+                )
+            self.elasticity = Elasticity(grid, held, **constants)
+        self.threads = threads
+
+    def solve(self, density: np.ndarray, loads: np.ndarray, start: np.ndarray | None = None) -> tuple[np.ndarray, int]:
+        """The displacements u with K(density) u = loads, and the number of conjugate-gradient steps the
+        solve took. ``start`` is a first guess of u (a warm start, such as the state of the previous pass):
+        the 3D solver starts from it, the direct 2D solver has no use for it and reports 0 steps."""
+        if not self.is_3d:
+            return self.elasticity.solve(density, loads), 0
+        u = self.elasticity.solve(density, loads, start=start)
+        return u, int(self.elasticity.last_solve_report()["steps"])
+
+    def adjoint(self, density: np.ndarray, rhs: np.ndarray) -> tuple[np.ndarray, int]:
+        """lambda with K(density) lambda = rhs (every held degree of freedom at zero), and the number of
+        conjugate-gradient steps the solve took (0 for the direct 2D solver)."""
+        if not self.is_3d:
+            return self.elasticity.adjoint(density, rhs), 0
+        lam = self.elasticity.adjoint(density, rhs)
+        return lam, int(self.elasticity.last_solve_report()["steps"])
 
     def case(self, name: str) -> LoadCase:
         """The load case called ``name``."""

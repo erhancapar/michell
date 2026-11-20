@@ -2,8 +2,9 @@
 
 OC handles one goal that falls as material is added (such as compliance) and exactly one limit that is
 linear in the density (such as mass). It measures that limit inside its bisection on the filtered field,
-so the filter chain must be empty or the engine's density filter alone. The update runs in the engine
-(``michell.Oc``).
+so the filter chain must be empty or the engine's density filter alone, and the grid must be 2D (the density
+filter is 2D). The update runs in the engine (``michell.Oc``). ``MovingAsymptotes`` (MMA) takes any
+filter, any number of limits and a 3D grid.
 """
 
 from __future__ import annotations
@@ -32,6 +33,8 @@ class OptimalityCriteria:
         self.move_limit = move_limit
 
     def start(self, problem: Problem, x: np.ndarray, limits: Sequence[Limit], filters: Sequence[Filter]) -> None:
+        if problem.is_3d:
+            raise ValueError("OC runs on a 2D grid only; use MovingAsymptotes (MMA) on a 3D grid")
         if len(limits) != 1:
             raise ValueError(f"OC handles exactly one limit; got {len(limits)}")
         limit = limits[0]
@@ -40,7 +43,10 @@ class OptimalityCriteria:
                 f"OC needs a limit that reads no physics; {limit.response.name} reads {limit.response.reads}"
             )
         if len(filters) > 1 or (filters and not isinstance(filters[0], _engine.DensityFilter)):
-            raise ValueError("OC measures its limit on the filtered field and supports only the density filter")
+            raise ValueError(
+                "OC measures its limit on the filtered field and supports only the density filter; "
+                "use MovingAsymptotes (MMA) with any other filter"
+            )
         self._filter = filters[0] if filters else None
         self._weights = self._linear_weights(problem, limit)
         self._bound = float(limit.at_most)

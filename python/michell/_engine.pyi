@@ -222,6 +222,24 @@ class DensityFilter:
     def backward(self, x: Vector, grad: Vector) -> Vector:
         """dg/dx from dg/drho; x is the field the filter was applied to (only its length is checked)."""
 
+class HelmholtzFilter:
+    """The PDE (Helmholtz) filter on a 3D grid (Lazarov and Sigmund 2011): rho solves
+    -r^2 lap(psi) + psi = x on the active elements with a zero-flux boundary, r = radius / (2 sqrt 3),
+    radius in mm; solved by conjugate gradients to the relative residual ``tolerance`` on ``threads``
+    threads."""
+
+    radius: float
+    length: float
+    tolerance: float
+    threads: int
+
+    def __init__(self, grid: Grid3d, radius: float, threads: int = 1, *, tolerance: float = 1e-10) -> None: ...
+    def forward(self, x: Vector) -> Vector:
+        """rho, one value per element (0 on inactive elements); a long call."""
+
+    def backward(self, x: Vector, grad: Vector) -> Vector:
+        """dg/dx from dg/drho: the same symmetric map applied to grad; x is only checked for its length."""
+
 class Oc:
     """The optimality-criteria update of the 88-line code: one goal, one limit linear in the density."""
 

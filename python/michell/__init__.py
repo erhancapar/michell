@@ -6,11 +6,11 @@ The package holds:
   element strain energy and stress) and ``element_stiffness``;
 - the 3D analysis: ``Grid3d`` (cube elements), ``Elasticity3d`` (the same calls, solved by conjugate
   gradients on a stiffness matrix that is never assembled) and ``element_stiffness_3d``;
-- the problem: ``Material``, ``LoadCase``, ``Problem``;
+- the problem: ``Material``, ``LoadCase``, ``Problem`` (on a 2D or a 3D grid);
 - the module interface (``docs/design/modules.md``): ``Response``, ``Filter``, ``Partials`` and the
   read-only ``Evaluation``, with ``Row`` (``michell.row``), the result of one check, which a module's
   self-test and the verification table both use;
-- the responses ``Compliance`` and ``Mass``, and the ``DensityFilter``;
+- the responses ``Compliance`` and ``Mass``, the ``DensityFilter`` (2D) and the ``HelmholtzFilter`` (3D);
 - the optimisation loop ``optimise`` with its ``Limit``, the ``OptimalityCriteria`` optimiser (the engine's
   ``Oc`` update), the ``MovingAsymptotes`` optimiser (the engine's ``Mma`` update), and the
   finite-difference gradient check ``check_gradient``;
@@ -38,7 +38,7 @@ from michell._engine import (
 from michell.analysis import Elasticity, Grid
 from michell.analysis3d import Elasticity3d, Grid3d
 from michell.evaluation import Evaluation
-from michell.filters import DensityFilter
+from michell.filters import DensityFilter, HelmholtzFilter
 from michell.gradient_check import GradientCheck, check_gradient, check_on_small_problem
 from michell.mma import MovingAsymptotes
 from michell.modules import Filter, Partials, Response
@@ -61,6 +61,7 @@ __all__ = [
     "GradientCheck",
     "Grid",
     "Grid3d",
+    "HelmholtzFilter",
     "Limit",
     "LoadCase",
     "Mass",

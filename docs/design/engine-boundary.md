@@ -4,7 +4,8 @@ Status: design note, kept in step with the code. The 2D analysis, the density fi
 MMA update and `dot` exist. The 3D analysis exists (`Grid3d`, `Elasticity3d`) and runs on as many threads as
 it is given: its solver is conjugate gradients preconditioned by one multigrid V-cycle (Galerkin coarse
 matrices, damped Jacobi smoothing, a direct solve on the coarsest level), and it checks when it is built that
-the part is held (see "Errors"). The rest of the table below is planned.
+the part is held (see "Errors"). The Helmholtz filter (`HelmholtzFilter`) exists on the 3D grid, on threads
+like the 3D analysis. The rest of the table below is planned.
 
 ## The rule
 
@@ -39,8 +40,8 @@ objects. Planned objects, with the [milestone](../roadmap.md) that brings them:
 | Object | Calls | Milestone |
 |---|---|---|
 | `Grid` | built from shape, voxel size and an active-element mask | 1 |
-| `Elasticity` | `solve(rho, loads, held_values=None) -> u`, `adjoint(rho, rhs) -> lambda`, `sensitivity(rho, u, lambda)` (the term $-\lambda^T (\partial K / \partial \rho_e)\, u$ per element, sign included), `element_strain_energy`, `element_stress` | 1 (2D), 2 (3D) |
-| `DensityFilter`, `Projection` | `forward(x)`, `backward(x, grad)` | 1, 2 |
+| `Elasticity` | `solve(rho, loads, held_values=None) -> u`, `adjoint(rho, rhs) -> lambda` (in 3D both also take a first guess `start=None`, and `last_solve_report()` gives the steps of the last solve), `sensitivity(rho, u, lambda)` (the term $-\lambda^T (\partial K / \partial \rho_e)\, u$ per element, sign included), `element_strain_energy`, `element_stress` | 1 (2D), 2 (3D) |
+| `DensityFilter`, `HelmholtzFilter`, `Projection` | `forward(x)`, `backward(x, grad)` | 1, 2 |
 | `Oc` | `update(x, d_goal, d_limit, limit_weights, limit_bound, filter=None) -> x`: the classic update for one limit, measured on the filtered field | 1 |
 | `Mma` | built from the bounds of the variables and the number of limits; `update(x, goal, d_goal, limits, d_limits) -> x`, with the limits written f_i(x) <= 0 and `d_limits` one row per limit; it remembers the two previous designs | 1 |
 | `dot` (a function) | `dot(a, b) -> float`: the dot product of two vectors, summed in index order, for the products of the optimisation loop (see "Threads") | 1 |
@@ -53,10 +54,10 @@ Array rules:
    for x, y, z displacement (in 2D: `2n, 2n+1`).
 2. **Inputs are never converted.** The engine accepts a contiguous float64 array and refuses anything else
    (wrong type, wrong length, not contiguous) with a clear error; a 2-D input (the limits' gradients of `Mma`)
-   must also be row-major (C order). A short call reads the array in place. A long
-   call (a solve) copies its inputs once before it releases Python's lock, so that another Python thread cannot
-   change them halfway; the copy costs far less than the solve. The engine never keeps a pointer to an input
-   after the call returns.
+   must also be row-major (C order). A short call reads the array in place. A long call (a solve, the
+   Helmholtz filter) copies its inputs once before it releases Python's lock, so that another Python thread
+   cannot change them halfway; the copy costs far less than the solve. The engine never keeps a pointer to an
+   input after the call returns.
 3. **Outputs are new arrays** owned by Python.
 4. Elements outside the design space are simply inactive: they take part in no equation. A degree of freedom
    that touches no active element is held at zero, and a load on it is refused.
@@ -65,8 +66,9 @@ Array rules:
 
 ## Threads
 
-A long call (a solve, an optimiser update) copies its inputs and then releases Python's global lock, so other
-Python threads keep running; a short call (a filter, a per-element quantity) keeps the lock and reads in place.
+A long call (a solve, an optimiser update, the Helmholtz filter, which solves a linear system) copies its inputs
+and then releases Python's global lock, so other Python threads keep running; a short call (the density filter,
+a per-element quantity) keeps the lock and reads in place.
 The number of threads is an explicit input (problem file or argument), never a guess from the environment, and
 it is written into every result.
 
@@ -79,8 +81,10 @@ products from the engine's `dot`, on one thread; the measurement that moved them
 The 3D analysis takes the thread count as an argument of the object, `Elasticity3d(..., threads=1)`: at least
 1, and a count above the number of processor cores is allowed (the threads then take turns). The engine keeps
 one pool of worker threads per distinct count (from the `rayon` crate), started the first time that count is
-asked for and shared by every object that asks for the same count. The 2D analysis, the filter and the
-optimiser updates run on one thread.
+asked for and shared by every object that asks for the same count. The Helmholtz filter takes its thread
+count the same way, `HelmholtzFilter(grid, radius, threads=1)`, and so does a 3D `Problem`, which hands it to
+its analysis; the thread count is written into the result of an optimisation (`Result.threads`). The 2D
+analysis, the density filter and the optimiser updates run on one thread.
 
 ## Same input, same output
 
@@ -94,7 +98,12 @@ The 3D analysis is built so that its sums do not depend on which thread runs whi
 blocks of a fixed length that does not depend on the thread count, each block summed in index order and the
 block sums added in order. Every other step writes separate pieces of its output (the entries of one node, the
 value of one element), each computed with the same arithmetic whichever thread runs it. Verification row 15
-compares the numbers of runs on several thread counts.
+compares the numbers of runs on several thread counts, the Helmholtz filter's included.
+
+The engine keeps no solution from one call to the next: a call's output depends only on its inputs. A warm
+start is therefore an input. The 3D `solve` takes a first guess `start=`, and the optimisation loop hands
+each solve the state of the same load case from the previous pass, in the open (`evaluate(..., start=)`);
+the number of conjugate-gradient steps each pass took is written into its record (`Pass.solver_steps`).
 
 ## Errors
 

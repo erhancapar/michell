@@ -3,6 +3,10 @@
 Each pass: filter x into the density, solve, measure the goal and the limits, complete their gradients with
 the adjoint method and push them back through the filters, and let the optimiser move x. Every heavy step is
 one call into the engine.
+
+The states of one pass are handed to the solves of the next as their first guess (a warm start): the
+iterative 3D solver then needs fewer steps once the design changes little. They are passed in the open, from
+one call of ``evaluate`` to the next; no object keeps a solution on its own.
 """
 
 from __future__ import annotations
@@ -48,18 +52,21 @@ class Optimiser(Protocol):
 
 @dataclass(frozen=True)
 class Pass:
-    """The record of one pass: the goal and limit values at the start of the pass, and the largest change
-    of a design variable made by its update."""
+    """The record of one pass: the goal and limit values at the start of the pass, the largest change of a
+    design variable made by its update, and ``solver_steps``, the conjugate-gradient steps of the pass's
+    solves (the states of every load case and any adjoint solve), summed; 0 for the direct 2D solver."""
 
     number: int
     goal: float
     limits: tuple[float, ...]
     change: float
+    solver_steps: int = 0
 
 
 @dataclass(frozen=True)
 class Result:
-    """The design variables and density after the last pass, and the record of every pass.
+    """The design variables and density after the last pass, the record of every pass, and the number of
+    threads the solves ran on.
 
     Each record holds the values at the start of its pass, so the last recorded goal belongs to the design
     before the last update: one update behind ``x`` and ``density``."""
@@ -67,6 +74,7 @@ class Result:
     x: np.ndarray
     density: np.ndarray
     passes: tuple[Pass, ...]
+    threads: int = 1
 
 
 def optimise(
@@ -88,17 +96,21 @@ def optimise(
     reads = set(goal.reads).union(*(limit.response.reads for limit in limits))
     optimiser.start(problem, x, limits, filters)
     history = []
+    states = None  # the warm start of the next pass's solves
     for number in range(1, passes + 1):
-        ev, fields = evaluate(problem, x, filters, reads)
+        ev, fields = evaluate(problem, x, filters, reads, start=states)
+        steps = [ev.solver_steps]
         goal_value = goal.value(ev)
-        d_goal = total_gradient(problem, goal, ev, fields, filters)
+        d_goal = total_gradient(problem, goal, ev, fields, filters, steps)
         limit_values = [limit.response.value(ev) for limit in limits]
-        d_limits = [total_gradient(problem, limit.response, ev, fields, filters) for limit in limits]
+        d_limits = [total_gradient(problem, limit.response, ev, fields, filters, steps) for limit in limits]
 
         x_new = optimiser.update(x, goal_value, d_goal, limit_values, d_limits)
         change = float(np.abs(x_new - x).max())
-        history.append(Pass(number, goal_value, tuple(limit_values), change))
+        history.append(Pass(number, goal_value, tuple(limit_values), change, sum(steps)))
         x = x_new
+        states = ev.states
         if stop_change is not None and change <= stop_change:
             break
-    return Result(x=x, density=apply_filters(x, filters)[-1], passes=tuple(history))
+    density = apply_filters(x, filters)[-1]
+    return Result(x=x, density=density, passes=tuple(history), threads=problem.threads)

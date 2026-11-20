@@ -1,11 +1,12 @@
 # Verification
 
-This table checks the 2D and the 3D analysis and the 2D optimisation against closed-form solutions, against
-an exact integration and an independent assembly of the 3D stiffness matrix, against a sparse direct solution
-of the 3D system, against central finite differences, against the published 88-line topology optimisation code
-(Andreassen et al., Struct. Multidisc. Optim. 43, 2011, run in GNU Octave; see
+This table checks the 2D and the 3D analysis, the 2D and the 3D optimisation and the Helmholtz filter against
+closed-form solutions, against an exact integration and an independent assembly of the 3D stiffness matrix,
+against a sparse direct solution of the 3D system, against central finite differences, against the published
+88-line topology optimisation code (Andreassen et al., Struct. Multidisc. Optim. 43, 2011, run in GNU Octave; see
 `tests/reference/top88/PROVENANCE.txt`) and against published optima (Svanberg, Int. J. Numer. Meth. Eng. 24,
-1987); it also runs the 3D analysis on several thread counts and twice in a row and compares the numbers, and
+1987); it also runs the 3D analysis and the Helmholtz filter on several thread counts and twice in a row and
+compares the numbers, and
 counts the steps the 3D solver takes. The measure, the set-up and the limit of every row were fixed before
 its first result was computed; a limit is never changed to make a row pass. Every limit is an upper bound on
 the measured value. Measured values are rounded to three significant digits; values at the level of
@@ -44,7 +45,7 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 13 | 3D pure shear in the zx plane: shear stress equal to G gamma, other components zero | closed form | 3.12e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (8.8e-16) and the other five components (3.12e-15); 4 x 4 x 4 elements |
 | 13 | 3D pure shear in the xy plane: shear stress equal to G gamma, other components zero | closed form | 1.09e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (5.28e-16) and the other five components (1.09e-15); 4 x 4 x 4 elements |
 | 14 | 3D matrix-free product K(rho) x against the matrix assembled with SciPy | independent computation | 4.59e-16 | ≤ 1e-12 | pass | largest entry difference relative to the largest entry; 7 x 5 x 3 elements, 12 outside the part, random densities, 114 held degrees of freedom |
-| 15 | 3D analysis gives the same numbers on 1, 2, 5 and 12 threads and on a repeated run | repeatability | 0 | ≤ 0 | pass | largest absolute difference from the run on 1 thread, over the product, a complete solve (24 steps to 1e-10: displacements, final residual, step count) and the strain energy, sensitivity and stress of its solution; every array also compared byte for byte; 19 x 15 x 15 elements, 15360 degrees of freedom (15 blocks of a sum), 450 outside the part, random densities, held displacements |
+| 15 | 3D analysis and Helmholtz filter give the same numbers on 1, 2, 5 and 12 threads and on a repeated run | repeatability | 0 | ≤ 0 | pass | largest absolute difference from the run on 1 thread, over the product, a complete solve (24 steps to 1e-10: displacements, final residual, step count) the strain energy, sensitivity and stress of its solution, and the Helmholtz filter forward and backward; every array also compared byte for byte; 19 x 15 x 15 elements, 15360 degrees of freedom (15 blocks of a sum), 450 outside the part, random densities, held displacements |
 | 16 | 3D solver against a sparse direct solution: uniform, 50 x 20 x 20 | independent computation | 4.97e-12 | ≤ 1e-07 | pass | \|u - u_direct\| / \|u_direct\|; uniform density 1; 3 multigrid levels, 0 coarsest degrees of freedom left out, 24 steps to 1e-10; largest entry difference over the largest entry 4.81e-12 |
 | 16 | 3D solver against a sparse direct solution: lattice, 50 x 20 x 20 | independent computation | 1.15e-11 | ≤ 1e-07 | pass | \|u - u_direct\| / \|u_direct\|; lattice of bars, 25% solid; 3 multigrid levels, 0 coarsest degrees of freedom left out, 57 steps to 1e-10; largest entry difference over the largest entry 1.08e-11 |
 | 16 | 3D solver against a sparse direct solution: irregular, 50 x 20 x 20 | independent computation | 2.34e-09 | ≤ 1e-07 | pass | \|u - u_direct\| / \|u_direct\|; irregular, cut at 40 %, 44% solid in one face-joined group; 3 multigrid levels, 0 coarsest degrees of freedom left out, 112 steps to 1e-10; largest entry difference over the largest entry 2.41e-09 |
@@ -53,8 +54,13 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 17 | 3D solver steps on the lattice 0-and-1 design, 48 x 24 x 24 | convergence | 92 | ≤ 300 | pass | lattice of bars, 22% solid; 277 products with the fine stiffness matrix |
 | 17 | 3D solver steps on the irregular 0-and-1 design, 48 x 24 x 24 | convergence | 131 | ≤ 600 | pass | irregular, cut at 41 %, 45% solid in one face-joined group; 394 products with the fine stiffness matrix |
 | 18 | 3D cantilever, length 8 x depth, square section: deflection against Timoshenko beam theory | closed form | 0.0112 | < 0.02 | pass | relative error with 16 elements through the depth; with 4, 8, 16: 0.0451, 0.0186, 0.0112; the error must also shrink: it does |
+| 19 | Gradient of compliance through the Helmholtz filter in 3D against central differences | gradient | 5.95e-08 | ≤ 1e-05 | pass | 120 elements of a 3D block with an inactive pocket, two load cases, random density, solves at 1e-12; largest difference relative to the gradient's size; worst element on its own scale 3.33e-07 (reported, not judged) |
+| 19 | Gradient of mass through the Helmholtz filter in 3D against central differences | gradient | 3.25e-08 | ≤ 1e-05 | pass | 120 elements of a 3D block with an inactive pocket, two load cases, random density, solves at 1e-12; largest difference relative to the gradient's size; worst element on its own scale 3.25e-08 (reported, not judged) |
+| 20 | Helmholtz filter keeps the sum of the field | closed form | 1.36e-13 | ≤ 1e-08 | pass | relative difference of the sums; 24 x 12 x 10 elements, 480 outside the part, radius 2.5 h, random fields |
+| 20 | Helmholtz filter is symmetric: <F x, y> = <x, F y> | closed form | 2.84e-13 | ≤ 1e-08 | pass | relative difference; 24 x 12 x 10 elements, 480 outside the part, radius 2.5 h, random fields |
+| 20 | Helmholtz filter on a long bar against the 1D solution h / (2 r) exp(-\|x\| / r) | closed form | 0.0156 | ≤ 0.02 | pass | largest relative difference at r, 2r and 3r on both sides (0.0104, 0.013, 0.0156); r = 4 h, 91 x 1 x 1 elements, 11.2 r on each side; lumped mass matrix, which keeps every filtered field in [0, 1] for any radius |
 
-37 passed, 0 failed, 0 not run.
+42 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 

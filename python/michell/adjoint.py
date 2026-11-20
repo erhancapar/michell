@@ -38,8 +38,9 @@ def multiple_of_loads(d_state: np.ndarray, loads: np.ndarray) -> float | None:
 
 def adjoint_state(
     problem: Problem, density: np.ndarray, u: np.ndarray, loads: np.ndarray, d_state: np.ndarray
-) -> np.ndarray | None:
-    """lambda with K(rho) lambda = d_state, or None when d_state is zero (no contribution).
+) -> tuple[np.ndarray | None, int]:
+    """lambda with K(rho) lambda = d_state, or None when d_state is zero (no contribution), with the number
+    of conjugate-gradient steps its solve took (0 when nothing was solved, and for the direct 2D solver).
 
     When d_state is a multiple c of the load vector, lambda is that multiple of the state, c * u, and the
     extra solve is skipped (compliance is the classic case). This rests on K u = loads, which holds because
@@ -47,11 +48,11 @@ def adjoint_state(
     would not be a multiple of the adjoint and the solve could not be skipped.
     """
     if not np.any(d_state):
-        return None
+        return None, 0
     c = multiple_of_loads(d_state, loads)
     if c is not None:
-        return c * u
-    return problem.elasticity.adjoint(density, d_state)
+        return c * u, 0
+    return problem.adjoint(density, d_state)
 
 
 def backward_through_filters(
@@ -70,8 +71,12 @@ def total_gradient(
     ev: Evaluation,
     fields: Sequence[np.ndarray],
     filters: Sequence[Filter],
+    solver_steps: list[int] | None = None,
 ) -> np.ndarray:
-    """dg/dx of ``response`` at the evaluation ``ev`` (made from ``fields`` by ``filters``)."""
+    """dg/dx of ``response`` at the evaluation ``ev`` (made from ``fields`` by ``filters``).
+
+    If ``solver_steps`` is given, the step count of every adjoint solve is appended to it (for the record of
+    a pass; compliance needs no adjoint solve)."""
     partials = response.partials(ev)
     n_elements = problem.grid.n_elements
     if partials.d_density is None:
@@ -88,7 +93,9 @@ def total_gradient(
             raise ValueError(f"{response.name}: d_state for {physics!r}, which is not in `reads`")
         d_state = np.ascontiguousarray(d_state, dtype=np.float64)
         u = ev.state(physics, case)
-        lam = adjoint_state(problem, ev.density, u, ev.loads(physics, case), d_state)
+        lam, steps = adjoint_state(problem, ev.density, u, ev.loads(physics, case), d_state)
+        if solver_steps is not None and steps:
+            solver_steps.append(steps)
         if lam is not None:
             d_density += problem.elasticity.sensitivity(ev.density, u, lam)
     return backward_through_filters(filters, fields, d_density)

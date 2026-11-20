@@ -35,4 +35,4 @@ testpaths = ["tests"]
 # importlib mode adds nothing from this folder to sys.path, so the tests see the installed package.
 # Plain `pytest` leaves out the slow tests; `pytest -m slow` runs them, `pytest -m ""` runs everything.
 addopts = "--import-mode=importlib -m 'not slow'"
-markers = ["slow: a long run (the 150 x 50 MBB beam, the full sizes of the 3D solver rows); left out unless selected with -m"]
+markers = ["slow: a long run (the 150 x 50 MBB beam, the full sizes of the 3D solver rows, the 3D cantilever example); left out unless selected with -m"]

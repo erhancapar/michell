@@ -10,7 +10,9 @@ Rows 6, 8 and 10 compare with the output of the 88-line code kept in the reposit
 solves its problems a second time with SciPy and row 14 assembles the 3D stiffness matrix with SciPy; both
 report "not run" when SciPy is not installed. Row 15 runs the 3D analysis on several thread counts. Row 16
 compares the 3D solver with a sparse direct solution computed by SciPy (also "not run" without it), row 17
-counts its steps, and row 18 compares a 3D cantilever with beam theory.
+counts its steps, and row 18 compares a 3D cantilever with beam theory. Row 19 checks the gradients of the 3D
+loop through the Helmholtz filter against finite differences, and row 20 the filter itself against its
+properties and a 1D closed form.
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ from michell.verification.analysis_rows import (
     row_5_plate_with_a_hole,
     row_6_first_pass,
 )
+from michell.verification.filter3d_rows import row_19_gradients, row_20_filter
 from michell.verification.mbb import MBB_CASES
 from michell.verification.solver3d_rows import (
     ROW_16_CASES,
@@ -55,7 +58,7 @@ from michell.verification.optimisation_rows import row_7_gradients, row_8_mbb_wi
 
 
 def all_rows(reference: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 18 in order. ``reference`` is the folder that holds ``top88/`` (in the repository:
+    """Runs rows 1 to 20 in order. ``reference`` is the folder that holds ``top88/`` (in the repository:
     ``tests/reference``)."""
     rows = []
     rows += row_1_element_matrix()
@@ -80,6 +83,8 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_17_design("lattice")
     rows += row_17_design("irregular")
     rows += row_18_cantilever()
+    rows += row_19_gradients()
+    rows += row_20_filter()
     return rows
 
 
@@ -114,4 +119,6 @@ __all__ = [
     "row_17_uniform",
     "row_17_design",
     "row_18_cantilever",
+    "row_19_gradients",
+    "row_20_filter",
 ]

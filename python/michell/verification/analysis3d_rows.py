@@ -1,5 +1,6 @@
 """Verification rows 11 to 15: the 3D analysis against an exact integration, closed forms and an
-independently assembled stiffness matrix, and the same numbers on any thread count.
+independently assembled stiffness matrix, and the same numbers on any thread count (the Helmholtz filter
+included).
 
 Each row's measure, set-up and limit were fixed before any result was computed. Unless a row says
 otherwise: unit cube elements, Poisson ratio 0.3, solves to a relative residual of 1e-10.
@@ -13,6 +14,7 @@ import numpy as np
 
 from michell._engine import element_stiffness_3d
 from michell.analysis3d import Elasticity3d, Grid3d
+from michell.filters import HelmholtzFilter
 from michell.row import CLOSED_FORM, INDEPENDENT_COMPUTATION, REPEATABILITY, Row, checked, g3, not_run
 
 E, NU = 210000.0, 0.3
@@ -309,7 +311,9 @@ def row_14_product() -> list[Row]:
 # numbers: the largest absolute difference from the run on 1 thread is exactly 0, and every array is equal
 # byte for byte. Compared: the product K(rho) x; a complete solve to 1e-10 (its displacements, its final
 # relative residual and its step count: the solver's sums decide every step length, so a sum that differed
-# would change them); the per-element strain energy, sensitivity and stress of that solution. Set-up: 19 x
+# would change them); the per-element strain energy, sensitivity and stress of that solution; the forward
+# and the backward map of the Helmholtz filter (radius 2.5 h, built on the same thread count) on the
+# densities and on the strain energy. Set-up: 19 x
 # 15 x 15 elements, so that the sums span more blocks than the largest thread count and every thread gets
 # work; the elements with i >= 13 and j >= 10 outside the part; random densities between 0.3 and 1 (E_min =
 # 1e-9 E); the face x = 0 held at a prescribed displacement (so the held values enter the right-hand side)
@@ -339,17 +343,20 @@ def row_15_thread_count() -> list[Row]:
         if j_ <= 10:  # the far face, where it belongs to the part
             loads[3 * grid.node(nx, j_, k) + 2] = -1.0 / (11 * (nz + 1))
 
-    def outputs(model) -> dict[str, np.ndarray]:
+    def outputs(model, pde_filter) -> dict[str, np.ndarray]:
         u = model.solve(rho, loads, held_values=held_values)
         report = model.last_solve_report()
+        energy = model.element_strain_energy(rho, u)
         return {
             "product": model.product(rho, x),
             "displacements": u,
             "relative residual": np.array([report["relative_residual"]]),
             "steps": np.array([float(report["steps"])]),
-            "strain energy": model.element_strain_energy(rho, u),
+            "strain energy": energy,
             "sensitivity": model.sensitivity(rho, u, u),
             "stress": model.element_stress(rho, u),
+            "filter forward": pde_filter.forward(rho),
+            "filter backward": pde_filter.backward(rho, energy),
         }
 
     runs = []
@@ -358,8 +365,9 @@ def row_15_thread_count() -> list[Row]:
             grid, held, youngs_modulus=E, poisson_ratio=NU, e_min=1e-9 * E, penalty=3.0,
             tolerance=SOLVE_TOLERANCE, max_steps=5000, threads=threads,
         )  # fmt: skip
-        runs.append(outputs(model))
-    runs.append(outputs(model))  # the same object on 12 threads, called again
+        pde_filter = HelmholtzFilter(grid, 2.5, threads=threads)
+        runs.append(outputs(model, pde_filter))
+    runs.append(outputs(model, pde_filter))  # the same objects on 12 threads, called again
 
     first = runs[0]
     largest, identical = 0.0, True
@@ -372,14 +380,15 @@ def row_15_thread_count() -> list[Row]:
     return [
         Row(
             15,
-            f"3D analysis gives the same numbers on {threads} threads and on a repeated run",
+            f"3D analysis and Helmholtz filter give the same numbers on {threads} threads and on a repeated run",
             REPEATABILITY,
             largest,
             0.0,
             bool(identical and largest == 0.0),
             f"largest absolute difference from the run on 1 thread, over the product, a complete solve "
             f"({int(first['steps'][0])} steps to {SOLVE_TOLERANCE:g}: displacements, final residual, step count) "
-            f"and the strain energy, sensitivity and stress of its solution; every array also compared byte for "
+            f"the strain energy, sensitivity and stress of its solution, and the Helmholtz filter forward and "
+            f"backward; every array also compared byte for "
             f"byte; {nx} x {ny} x {nz} elements, {grid.n_dofs} degrees of freedom ({blocks} blocks of a sum), "
             f"{int((~active).sum())} outside the part, random densities, held displacements",
         )

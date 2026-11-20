@@ -15,8 +15,9 @@ import numpy as np
 
 from michell.adjoint import total_gradient
 from michell.analysis import Grid
+from michell.analysis3d import Grid3d
 from michell.evaluation import evaluate
-from michell.filters import DensityFilter
+from michell.filters import DensityFilter, HelmholtzFilter
 from michell.modules import Filter, Response
 from michell.problem import LoadCase, Material, Problem
 
@@ -92,6 +93,43 @@ def small_problem(seed: int = 0) -> tuple[Problem, np.ndarray, list[Filter]]:
     problem = Problem(grid, held, material, [LoadCase("tip", tip, 1.0), LoadCase("pull", pull, 0.5)])
     x = np.random.default_rng(seed).uniform(0.1, 0.9, grid.n_elements)
     return problem, x, [DensityFilter(grid, 3.75)]
+
+
+def small_problem_3d(
+    seed: int = 0, solver_tolerance: float = 1e-12, filter_tolerance: float = 1e-12
+) -> tuple[Problem, np.ndarray, list[Filter]]:
+    """A small 3D problem for gradient checks.
+
+    A block of 8 by 4 by 4 cube elements (side 1.5 mm, steel) clamped on its face x = 0, with a pocket of
+    2 by 2 by 2 inactive elements, two weighted load cases (a downward load at the middle of the lower far
+    edge, and a sideways pull at a top far corner), a Helmholtz filter of radius 3.75 mm (2.5 element sides)
+    and design variables drawn at random from [0.1, 0.9]. Its 675 degrees of freedom keep the multigrid
+    to one level, so every elasticity solve is direct; ``solver_tolerance`` and ``filter_tolerance`` are the
+    relative residuals of the elasticity and the filter solves.
+    """
+    nx, ny, nz = 8, 4, 4
+    active = np.ones(nx * ny * nz, dtype=bool)
+    for k in (1, 2):
+        for j in (1, 2):
+            for i in (4, 5):
+                active[i + nx * (j + ny * k)] = False
+    grid = Grid3d(nx, ny, nz, 1.5, active=active)
+    held = np.zeros(grid.n_dofs, dtype=bool)
+    for k in range(nz + 1):
+        for j in range(ny + 1):
+            node = grid.node(0, j, k)
+            held[3 * node : 3 * node + 3] = True
+    down = np.zeros(grid.n_dofs)
+    down[3 * grid.node(nx, ny // 2, 0) + 2] = -1000.0
+    pull = np.zeros(grid.n_dofs)
+    pull[3 * grid.node(nx, ny, nz) + 1] = 500.0
+    material = Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_mm3=7.85e-3)
+    problem = Problem(
+        grid, held, material, [LoadCase("down", down, 1.0), LoadCase("pull", pull, 0.5)],
+        solver_tolerance=solver_tolerance,
+    )  # fmt: skip
+    x = np.random.default_rng(seed).uniform(0.1, 0.9, grid.n_elements)
+    return problem, x, [HelmholtzFilter(grid, 3.75, tolerance=filter_tolerance)]
 
 
 def check_on_small_problem(response: Response, seed: int = 0, step: float = 1e-6) -> GradientCheck:

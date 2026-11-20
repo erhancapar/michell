@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 import numpy as np
 
@@ -26,12 +26,19 @@ class Evaluation:
     ``grid``, ``density`` (rho, one value per element), ``material``, ``cases``, ``state(physics, case)``
     (the solved state, one value per degree of freedom), ``loads(physics, case)``, and ``engine`` (the
     elasticity model, for heavy helpers such as element strain energy and stress).
+
+    For the loop, not for responses: ``states`` (every solved state, keyed by (physics, case): the warm
+    start of the next pass) and ``solver_steps`` (the conjugate-gradient steps the solves took, summed; 0
+    for the direct 2D solver).
     """
 
-    def __init__(self, problem: Problem, density, states: dict[tuple[str, str], np.ndarray]):
+    def __init__(
+        self, problem: Problem, density, states: dict[tuple[str, str], np.ndarray], solver_steps: int = 0
+    ):
         self._problem = problem
         self._density = read_only(density)
         self._states = {key: read_only(value) for key, value in states.items()}
+        self._solver_steps = solver_steps
 
     @property
     def grid(self):
@@ -52,6 +59,15 @@ class Evaluation:
     @property
     def engine(self):
         return self._problem.elasticity
+
+    @property
+    def states(self) -> dict[tuple[str, str], np.ndarray]:
+        """Every solved state, keyed by (physics, case); the arrays are read-only."""
+        return dict(self._states)
+
+    @property
+    def solver_steps(self) -> int:
+        return self._solver_steps
 
     def state(self, physics: str, case: str) -> np.ndarray:
         if (physics, case) not in self._states:
@@ -76,16 +92,27 @@ def apply_filters(x: np.ndarray, filters: Sequence[Filter]) -> list[np.ndarray]:
 
 
 def evaluate(
-    problem: Problem, x: np.ndarray, filters: Sequence[Filter], reads: Iterable[str]
+    problem: Problem,
+    x: np.ndarray,
+    filters: Sequence[Filter],
+    reads: Iterable[str],
+    start: Mapping[tuple[str, str], np.ndarray] | None = None,
 ) -> tuple[Evaluation, list[np.ndarray]]:
     """Filters x into the density, solves every physics in ``reads`` for every load case, and returns the
-    evaluation with the list of fields from ``apply_filters`` (needed to go back through the filters)."""
+    evaluation with the list of fields from ``apply_filters`` (needed to go back through the filters).
+
+    ``start``, if given, maps (physics, case) to a first guess of that state, usually ``states`` of the
+    previous pass's evaluation: the iterative 3D solver starts from it (a warm start), the direct 2D solver
+    ignores it. A state missing from ``start`` is solved from zero. Nothing is kept between calls."""
     fields = apply_filters(x, filters)
     density = fields[-1]
     states = {}
+    steps = 0
     for physics in sorted(set(reads)):
         if physics != "elasticity":
             raise ValueError(f"unknown physics {physics!r}; known: {KNOWN_PHYSICS}")
         for case in problem.cases:
-            states[(physics, case.name)] = problem.elasticity.solve(density, case.loads)
-    return Evaluation(problem, density, states), fields
+            first_guess = None if start is None else start.get((physics, case.name))
+            states[(physics, case.name)], case_steps = problem.solve(density, case.loads, start=first_guess)
+            steps += case_steps
+    return Evaluation(problem, density, states, solver_steps=steps), fields

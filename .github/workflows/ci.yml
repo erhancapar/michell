@@ -56,3 +56,29 @@ jobs:
         run: michell --version
       - name: Run the tests against the installed package
         run: python -m pytest -v
+
+  verification:
+    name: Verification table and long runs (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build the wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          command: build
+          args: --release --out dist
+          manylinux: auto
+      - name: Install the wheel
+        shell: bash
+        run: >-
+          python -m pip install --only-binary=:all: dist/michell-*.whl pytest scipy numpy
+      - name: Run the slow tests (the 150 x 50 MBB beam and the example script)
+        run: python -m pytest -v -m slow
+      - name: Run every verification row and print the table
+        # Exits with status 1 when a row fails or, with --require-all, when a row could not be run.
+        run: >-
+          python -m michell.verification --reference tests/reference --require-all
+          --commit ${{ github.sha }}

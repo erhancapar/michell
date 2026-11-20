@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "michell problem file, draft 0",
-  "description": "Draft. The format becomes real in stage 3 and may change until then. See docs/design/problem-file.md.",
+  "description": "Draft. The format becomes real in milestone 3 of docs/roadmap.md and may change until then. See docs/design/problem-file.md.",
   "type": "object",
   "required": ["schema", "regions", "grid", "material", "supports", "load_cases", "goal"],
   "additionalProperties": false,

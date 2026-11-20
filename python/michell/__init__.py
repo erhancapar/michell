@@ -13,6 +13,9 @@ The package holds:
   finite-difference gradient check ``check_gradient``;
 - ``EngineError``, the error every engine call raises.
 
+The verification rows of ``docs/verification.md`` are in the subpackage ``michell.verification``
+(``python -m michell.verification`` writes the table); it is not imported with ``michell``.
+
 Masks (active elements, held degrees of freedom) may be given as boolean arrays.
 """
 

@@ -1,7 +1,7 @@
 # The problem file
 
 Status: **draft 0**. The format is sketched here so that the engine and the modules are built towards it; it
-becomes real in stage 3 and may change until then. A machine-readable draft is in
+becomes real in [milestone 3](../roadmap.md) and may change until then. A machine-readable draft is in
 `schema/problem-0.schema.json`.
 
 ## Why one file
@@ -104,7 +104,7 @@ hash of the inputs, the history of every pass, the final value of the goal and e
 the check that stands behind each number**, the files written, and warnings. Errors are structured the same
 way: a stable code, a sentence for people, and the numbers involved.
 
-## Open questions (to settle in stage 3 with test cases)
+## Open questions (to settle in milestone 3 with test cases)
 
 1. How "touches a named body" becomes loaded or held nodes: only the contact face, or the overlapping volume.
    The two give measurably different stiffness, so the choice is made with test cases that have a known answer.

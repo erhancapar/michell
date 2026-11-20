@@ -13,7 +13,7 @@ license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 authors = [{ name = "Erhan Çapar" }]
 dependencies = ["numpy>=2.0"]  # the oldest NumPy the tests are run against
 classifiers = [
-    "Development Status :: 1 - Planning",
+    "Development Status :: 2 - Pre-Alpha",
     "Programming Language :: Python :: 3",
     "Programming Language :: Rust",
     "Topic :: Scientific/Engineering",
@@ -33,4 +33,6 @@ module-name = "michell._engine"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # importlib mode adds nothing from this folder to sys.path, so the tests see the installed package.
-addopts = "--import-mode=importlib"
+# Plain `pytest` leaves out the slow tests; `pytest -m slow` runs them, `pytest -m ""` runs everything.
+addopts = "--import-mode=importlib -m 'not slow'"
+markers = ["slow: a long run (the 150 x 50 MBB beam); left out unless selected with -m"]

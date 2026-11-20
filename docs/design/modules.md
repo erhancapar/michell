@@ -149,6 +149,6 @@ there, not in `start`.
 ## Open questions (to settle with real code)
 
 - Stress and other local limits produce one value per element. Whether the aggregation into one number is part
-  of the response or a shared helper is decided with the stress module (stage 4).
-- Responses that read two physics at once (thermal stress) need the adjoint of a coupled solve (stage 6).
-- Whether a filter written in Python is fast enough at one million elements is measured in stage 2.
+  of the response or a shared helper is decided with the stress module ([milestone 4](../roadmap.md)).
+- Responses that read two physics at once (thermal stress) need the adjoint of a coupled solve (milestone 6).
+- Whether a filter written in Python is fast enough at one million elements is measured in milestone 2.

@@ -31,9 +31,9 @@ pass, against a solve that takes most of the time.
 ## What crosses the boundary
 
 Only three things cross: small settings (numbers, strings), **NumPy arrays of float64**, and handles to engine
-objects. Planned objects, with the stage that brings them:
+objects. Planned objects, with the [milestone](../roadmap.md) that brings them:
 
-| Object | Calls | Stage |
+| Object | Calls | Milestone |
 |---|---|---|
 | `Grid` | built from shape, voxel size and an active-element mask | 1 |
 | `Elasticity` | `solve(rho, loads, held_values=None) -> u`, `adjoint(rho, rhs) -> lambda`, `sensitivity(rho, u, lambda)` (the term $-\lambda^T (\partial K / \partial \rho_e)\, u$ per element, sign included), `element_strain_energy`, `element_stress` | 1 (2D), 2 (3D) |

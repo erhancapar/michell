@@ -1,0 +1,7 @@
+source: https://www.topopt.mek.dtu.dk/-/media/subsites/topopt/apps/dokumenter-og-filer-til-apps/top88.m
+sha256 of top88.m: 2ae6c7a9308f9da0a602d372c799cd6e43ad61c2ac034f6b54d34ead1c5477a2
+run with: GNU Octave (x86_64-pc-linux-gnu) version 11.3.0
+date: 2026-11-20
+cases (name: nelx, nely, volfrac, penal, rmin, ft):
+  mbb_60x20_r2.4_density:60,20,0.5,3,2.4,2
+  mbb_150x50_r6_density:150,50,0.5,3,6,2

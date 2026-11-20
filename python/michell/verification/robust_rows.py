@@ -3,7 +3,8 @@ MBB beam.
 
 Sources: Wang, Lazarov and Sigmund, "On projection methods, convergence and robust formulations in topology
 optimization", Struct. Multidisc. Optim. 43 (2011), for the projection, the eroded, nominal and dilated
-designs and the rescaling of the mass bound of the dilated design (their section 5); Sigmund,
+designs and the rescaling of the mass bound of the dilated design (the rule as stated by Kumar and
+Langelaar, Mech. Mach. Theory, 2022, doi:10.1016/j.mechmachtheory.2022.104871); Sigmund,
 "Morphology-based black and white filters for topology optimization", Struct. Multidisc. Optim. 33 (2007),
 for the measure of non-discreteness.
 
@@ -124,7 +125,7 @@ def row_22_robust_gradients() -> list[Row]:
 # 0.25)`, the goal compliance on `eroded` and the mass limit on `dilated`, MMA, x starting at 0.5.
 # Continuation: beta = 1, 2, 4, 8, 16, 32, each for 50 passes, each step one call of `optimise` from the x
 # of the step before. Before each step the bound of the dilated mass is set to M* M_dilated / M_nominal,
-# the two masses taken at the current x with that step's beta (Wang et al. 2011, section 5), so that the
+# the two masses taken at the current x with that step's beta (after Wang et al. 2011), so that the
 # nominal design is steered to the asked mass. The three compliances are solved on the designs after the
 # last pass.
 

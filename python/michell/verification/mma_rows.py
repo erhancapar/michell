@@ -15,8 +15,8 @@ from michell.mma import MovingAsymptotes
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, optimise
 from michell.responses import Compliance, Mass
+from michell.row import PUBLISHED_OPTIMUM, REFERENCE_CODE, Row, checked, g3, not_run
 from michell.verification.mbb import REFERENCE_NOT_FOUND, mbb_problem, read_reference
-from michell.verification.row import PUBLISHED_OPTIMUM, REFERENCE_CODE, Row, checked, g3, not_run
 
 # ---------------------------------------------------------------------------------------------------------
 # Row 9. Limit: on two small problems with published optima (Svanberg 1987: the five-variable cantilever

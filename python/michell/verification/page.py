@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from michell.verification.row import Row, g3
+from michell.row import Row, g3
 
 INTRODUCTION = """\
 This table checks the 2D engine against closed-form solutions, against central finite differences, against

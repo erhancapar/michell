@@ -5,12 +5,15 @@ The package holds:
 - the 2D analysis: ``Grid`` (square elements), ``Elasticity`` (plane stress: solve, adjoint, sensitivity,
   element strain energy and stress) and ``element_stiffness``;
 - the problem: ``Material``, ``LoadCase``, ``Problem``;
-- the module interface (``docs/design/modules.md``): ``Response``, ``Filter``, ``Partials``, ``Row`` and
-  the read-only ``Evaluation``;
+- the module interface (``docs/design/modules.md``): ``Response``, ``Filter``, ``Partials`` and the
+  read-only ``Evaluation``, with ``Row`` (``michell.row``), the result of one check, which a module's
+  self-test and the verification table both use;
 - the responses ``Compliance`` and ``Mass``, and the ``DensityFilter``;
 - the optimisation loop ``optimise`` with its ``Limit``, the ``OptimalityCriteria`` optimiser (the engine's
   ``Oc`` update), the ``MovingAsymptotes`` optimiser (the engine's ``Mma`` update), and the
   finite-difference gradient check ``check_gradient``;
+- ``dot``, the dot product of two vectors in the engine, for responses (with the OpenBLAS build that NumPy
+  ships, ``a @ b`` runs long products on every core);
 - ``EngineError``, the error every engine call raises.
 
 The verification rows of ``docs/verification.md`` are in the subpackage ``michell.verification``
@@ -25,6 +28,7 @@ from michell._engine import (
     EngineError,
     Mma,
     Oc,
+    dot,
     element_stiffness,
     engine_version,
 )
@@ -33,11 +37,12 @@ from michell.evaluation import Evaluation
 from michell.filters import DensityFilter
 from michell.gradient_check import GradientCheck, check_gradient, check_on_small_problem
 from michell.mma import MovingAsymptotes
-from michell.modules import Filter, Partials, Response, Row
+from michell.modules import Filter, Partials, Response
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, Pass, Result, optimise
 from michell.problem import LoadCase, Material, Problem
 from michell.responses import Compliance, Mass
+from michell.row import Row
 
 __version__ = _version("michell")
 
@@ -67,6 +72,7 @@ __all__ = [
     "__version__",
     "check_gradient",
     "check_on_small_problem",
+    "dot",
     "element_stiffness",
     "engine_version",
     "optimise",

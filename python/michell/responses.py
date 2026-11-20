@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 
+from michell._engine import dot
 from michell.analysis import Grid
 from michell.evaluation import evaluate
-from michell.modules import Partials, Row
+from michell.modules import Partials
 from michell.problem import LoadCase, Material, Problem
+from michell.row import Row, compared
 
 
 class Compliance:
@@ -24,7 +26,7 @@ class Compliance:
     def value(self, ev) -> float:
         total = 0.0
         for case in ev.cases:
-            total += case.weight * (ev.loads("elasticity", case.name) @ ev.state("elasticity", case.name))
+            total += case.weight * dot(ev.loads("elasticity", case.name), ev.state("elasticity", case.name))
         return float(total)
 
     def partials(self, ev) -> Partials:
@@ -52,7 +54,7 @@ class Compliance:
         ev, _ = evaluate(problem, np.ones(grid.n_elements), [], self.reads)
         length, area = nx * h, ny * h * t
         expected = force**2 * length / (e * area)
-        return [Row("compliance of a bar in tension, P^2 L / (E A)", self.value(ev), expected, 1e-10)]
+        return [compared("compliance of a bar in tension, P^2 L / (E A)", self.value(ev), expected, 1e-10)]
 
 
 class Mass:
@@ -64,7 +66,7 @@ class Mass:
     reads = ()
 
     def value(self, ev) -> float:
-        return float(self._per_element(ev) @ ev.density)
+        return dot(self._per_element(ev), ev.density)
 
     def partials(self, ev) -> Partials:
         return Partials(d_density=self._per_element(ev), d_state={})
@@ -87,5 +89,5 @@ class Mass:
         rows = []
         for fraction in (1.0, 0.5):
             ev, _ = evaluate(problem, np.full(grid.n_elements, fraction), [], self.reads)
-            rows.append(Row(f"mass of a block at density {fraction}", self.value(ev), fraction * solid, 1e-12))
+            rows.append(compared(f"mass of a block at density {fraction}", self.value(ev), fraction * solid, 1e-12))
         return rows

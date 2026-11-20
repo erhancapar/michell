@@ -15,6 +15,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from michell._engine import dot
 from michell.evaluation import Evaluation
 from michell.modules import Filter, Response
 from michell.problem import Problem
@@ -26,10 +27,10 @@ LOAD_MULTIPLE_TOLERANCE = 1e-12
 
 def multiple_of_loads(d_state: np.ndarray, loads: np.ndarray) -> float | None:
     """The number c with d_state = c * loads, or None if there is none."""
-    norm = loads @ loads
+    norm = dot(loads, loads)
     if norm == 0.0:
         return None
-    c = (d_state @ loads) / norm
+    c = dot(d_state, loads) / norm
     if np.abs(d_state - c * loads).max() <= LOAD_MULTIPLE_TOLERANCE * np.abs(d_state).max():
         return c
     return None

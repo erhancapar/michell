@@ -99,7 +99,7 @@ class Compliance:                                   # low compliance = high stif
     name, unit, reads = "compliance", "N mm", ("elasticity",)
 
     def value(self, ev):
-        return sum(c.weight * ev.loads("elasticity", c.name) @ ev.state("elasticity", c.name)
+        return sum(c.weight * michell.dot(ev.loads("elasticity", c.name), ev.state("elasticity", c.name))
                    for c in ev.cases)
 
     def partials(self, ev):
@@ -129,8 +129,12 @@ there, not in `start`.
 ## What every module must bring, and what it gets for free
 
 - **Its rows.** `self_test()` returns the module's own proof: at least one case with a known answer (a formula
-  from a textbook, with the source named). A `Row` is a name, the measured value, the expected value, a
-  tolerance stated in advance, and pass or fail.
+  from a textbook, with the source named). A row is built with `compared(name, value, expected, tolerance)`
+  from `michell.row`: the measured number is the difference between the value and the expected one, relative
+  to the expected value (absolute when it is 0), the limit is the tolerance stated in advance, and pass or
+  fail is computed from the two. The verification table (`docs/verification.md`) uses the same `Row` class;
+  its rows add a number in the table, a kind of check (closed form, gradient, reference code, published
+  optimum), a note, and the case of a row that could not be run.
 - **A gradient check, for free.** The framework compares every module's gradient with finite differences on a
   small random problem. No module can skip it.
 - **Its status is computed, not claimed.** A module is listed as *supported* only while all its rows pass in CI;
@@ -142,7 +146,10 @@ there, not in `start`.
 2. Inputs are read-only; return new arrays.
 3. Units are fixed: mm, N, MPa, g. A module states the unit of its value.
 4. Work on whole arrays with NumPy. If a module needs a loop over elements, the loop belongs in the engine, and
-   it moves there once a measurement shows it is the slow part.
+   it moves there once a measurement shows it is the slow part. A product of two long vectors is
+   `michell.dot(a, b)`, not `a @ b`: NumPy hands `@` to its BLAS library, and the OpenBLAS build that NumPy
+   ships runs a product of more than 10000 entries on every processor core and leaves its threads busy
+   between the calls of the loop.
 5. Third-party packages can add modules: they are found by name through the Python entry-point group
    `michell.modules`, so `pip install` of another package is enough.
 

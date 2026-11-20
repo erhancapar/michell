@@ -1,7 +1,7 @@
 # The engine boundary: what is Rust, what is Python
 
-Status: design note, kept in step with the code. The 2D analysis, the density filter, the OC update and the
-MMA update exist; the rest of the table below is planned.
+Status: design note, kept in step with the code. The 2D analysis, the density filter, the OC update, the
+MMA update and `dot` exist; the rest of the table below is planned.
 
 ## The rule
 
@@ -40,6 +40,7 @@ objects. Planned objects, with the [milestone](../roadmap.md) that brings them:
 | `DensityFilter`, `Projection` | `forward(x)`, `backward(x, grad)` | 1, 2 |
 | `Oc` | `update(x, d_goal, d_limit, limit_weights, limit_bound, filter=None) -> x`: the classic update for one limit, measured on the filtered field | 1 |
 | `Mma` | built from the bounds of the variables and the number of limits; `update(x, goal, d_goal, limits, d_limits) -> x`, with the limits written f_i(x) <= 0 and `d_limits` one row per limit; it remembers the two previous designs | 1 |
+| `dot` (a function) | `dot(a, b) -> float`: the dot product of two vectors, summed in index order, for the products of the optimisation loop (see "Threads") | 1 |
 | `HeatConduction` | same shape as `Elasticity` | 4 |
 
 Array rules:
@@ -65,6 +66,12 @@ A long call (a solve, an optimiser update) copies its inputs and then releases P
 Python threads keep running; a short call (a filter, a per-element quantity) keeps the lock and reads in place.
 The number of threads is an explicit input (problem file or argument), never a guess from the environment, and
 it is written into every result.
+
+The same holds for the libraries michell calls. NumPy hands a product of two vectors (`a @ b`) to its BLAS
+library; the OpenBLAS build that NumPy ships runs a product of more than 10000 entries on every processor
+core and leaves its threads waiting at full load between calls. The optimisation loop therefore takes its
+products from the engine's `dot`, on one thread; the measurement that moved them is in the header of
+`crates/michell/src/dot.rs`.
 
 ## Same input, same output
 

@@ -167,3 +167,19 @@ def test_a_grid_too_large_to_number_is_refused_not_a_crash():
     with pytest.raises(michell.EngineError, match="too large") as caught:
         michell.Grid(2**40, 2**40, 1.0, 1.0)
     assert caught.value.code == "invalid_input"
+
+
+def test_dot_sums_in_index_order_and_refuses_wrong_input():
+    a, b = np.array([1.0, 2.0, 3.0]), np.array([4.0, -5.0, 6.0])
+    assert michell.dot(a, b) == 12.0
+    # In index order 1e16 + 1 rounds back to 1e16, so the sum is exactly 0.
+    assert michell.dot(np.array([1e16, 1.0, -1e16]), np.ones(3)) == 0.0
+    read_only = np.array(a)
+    read_only.flags.writeable = False  # as the arrays of an Evaluation
+    assert michell.dot(read_only, b) == 12.0
+    with pytest.raises(michell.EngineError) as caught:
+        michell.dot(a, b[:2])
+    assert caught.value.code == "invalid_input"
+    assert caught.value.details == {"length_a": 3, "length_b": 2}
+    with pytest.raises(michell.EngineError, match="float64"):
+        michell.dot(a.astype(np.int64), b)

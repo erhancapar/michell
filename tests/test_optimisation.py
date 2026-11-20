@@ -8,6 +8,7 @@ from michell import _engine
 from michell.adjoint import multiple_of_loads
 from michell.evaluation import evaluate
 from michell.gradient_check import small_problem
+from michell.row import compared
 
 
 class Displacement:
@@ -57,14 +58,15 @@ def test_every_module_passes_its_own_rows(module):
     rows = module.self_test()
     assert rows
     for row in rows:
-        print(f"{module.name}: {row.name}: measured {row.measured!r}, expected {row.expected!r}")
+        print(f"{module.name}: {row.name}: measured {row.measured!r}, limit {row.limit!r}; {row.note}")
         assert row.passed
 
 
 def test_a_row_computes_pass_or_fail():
-    assert michell.Row("x", 1.0 + 1e-9, 1.0, 1e-8).passed
-    assert not michell.Row("x", 1.1, 1.0, 1e-8).passed
-    assert michell.Row("zero", 1e-13, 0.0, 1e-12).passed
+    assert compared("x", 1.0 + 1e-9, 1.0, 1e-8).passed is True
+    assert compared("x", 1.1, 1.0, 1e-8).passed is False
+    assert compared("zero", 1e-13, 0.0, 1e-12).passed is True
+    assert compared("not a number", float("nan"), 1.0, 1e-8).passed is False
 
 
 def test_the_evaluation_is_read_only():

@@ -13,6 +13,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from michell import _engine
+from michell._engine import dot
 from michell.evaluation import Evaluation
 from michell.modules import Filter
 from michell.optimise import Limit
@@ -70,6 +71,6 @@ class OptimalityCriteria:
             if weights is None:
                 weights = np.array(partials.d_density, dtype=np.float64)
             scale = np.abs(weights).sum()
-            if abs(limit.response.value(ev) - weights @ rho) > LINEARITY_TOLERANCE * scale:
+            if abs(limit.response.value(ev) - dot(weights, rho)) > LINEARITY_TOLERANCE * scale:
                 raise ValueError(f"OC needs a limit linear in the density; {limit.response.name} is not")
         return weights

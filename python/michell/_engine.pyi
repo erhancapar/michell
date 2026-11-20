@@ -33,6 +33,14 @@ def element_stiffness(
     Nodes counter-clockwise from the lower left; degrees of freedom u0, v0, u1, v1, u2, v2, u3, v3.
     """
 
+def dot(a: Vector, b: Vector) -> float:
+    """a . b of two arrays of the same length, summed in index order on one thread.
+
+    Use it instead of ``a @ b`` for long vectors in the optimisation loop: the OpenBLAS build that NumPy
+    ships runs a product of more than 10000 entries on every core, and its threads then keep the processor
+    busy between calls.
+    """
+
 class Grid:
     """A grid of nx by ny square elements of side h mm and thickness t mm, y up.
 

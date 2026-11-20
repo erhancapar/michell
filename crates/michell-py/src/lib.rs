@@ -8,9 +8,11 @@
 //! - `elasticity`: `michell.Elasticity` and `michell.element_stiffness`;
 //! - `filter`: `michell.DensityFilter`;
 //! - `oc`: `michell.Oc`, the optimality-criteria update;
-//! - `mma`: `michell.Mma`, the method of moving asymptotes.
+//! - `mma`: `michell.Mma`, the method of moving asymptotes;
+//! - `dot`: `michell.dot`, the dot product of two vectors.
 
 mod arrays;
+mod dot;
 mod elasticity;
 mod errors;
 mod filter;
@@ -25,6 +27,8 @@ use pyo3::pymodule;
 mod _engine {
     use pyo3::prelude::*;
 
+    #[pymodule_export]
+    use super::dot::dot;
     #[pymodule_export]
     use super::elasticity::{Elasticity, element_stiffness};
     #[pymodule_export]

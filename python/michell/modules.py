@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
+from michell.row import Row
+
 if TYPE_CHECKING:
     from michell.evaluation import Evaluation
 
@@ -28,25 +30,6 @@ class Partials:
 
     d_density: np.ndarray | None
     d_state: Mapping[tuple[str, str], np.ndarray] = field(default_factory=dict)
-
-
-@dataclass(frozen=True)
-class Row:
-    """One line of a module's own proof: a measured value against a known one.
-
-    ``tolerance`` is relative to ``expected`` (absolute when ``expected`` is 0) and is stated before the
-    value is measured. ``passed`` is computed from the numbers, never set by hand.
-    """
-
-    name: str
-    measured: float
-    expected: float
-    tolerance: float
-
-    @property
-    def passed(self) -> bool:
-        scale = abs(self.expected) if self.expected != 0 else 1.0
-        return abs(self.measured - self.expected) <= self.tolerance * scale
 
 
 class Response(Protocol):

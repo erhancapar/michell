@@ -14,8 +14,8 @@ from michell.gradient_check import check_on_small_problem
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, optimise
 from michell.responses import Compliance, Mass
+from michell.row import GRADIENT, REFERENCE_CODE, Row, checked, g3, not_run
 from michell.verification.mbb import REFERENCE_NOT_FOUND, mbb_case, mbb_problem, read_reference
-from michell.verification.row import GRADIENT, REFERENCE_CODE, Row, checked, g3, not_run
 
 # ---------------------------------------------------------------------------------------------------------
 # Row 7. Limit: the gradients of compliance and of mass through the density filter agree with central

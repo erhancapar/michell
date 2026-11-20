@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from michell import verification
+from michell.row import checked, not_run
 from michell.verification.page import exit_status, render
-from michell.verification.row import checked, not_run
 
 ROOT = Path(__file__).parent.parent
 

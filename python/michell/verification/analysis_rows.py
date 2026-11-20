@@ -11,8 +11,8 @@ import numpy as np
 
 from michell._engine import element_stiffness
 from michell.analysis import Elasticity, Grid
+from michell.row import CLOSED_FORM, REFERENCE_CODE, Row, checked, g3, not_run
 from michell.verification.mbb import MBB_CASES, REFERENCE_NOT_FOUND, mbb_problem, read_reference
-from michell.verification.row import CLOSED_FORM, REFERENCE_CODE, Row, checked, g3, not_run
 
 
 def plane_stress_matrix(e: float, nu: float) -> np.ndarray:

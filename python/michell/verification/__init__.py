@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from michell.row import CLOSED_FORM, GRADIENT, PUBLISHED_OPTIMUM, REFERENCE_CODE, Row
 from michell.verification.analysis_rows import (
     row_1_element_matrix,
     row_2_patch_test,
@@ -25,7 +26,6 @@ from michell.verification.analysis_rows import (
 from michell.verification.mbb import MBB_CASES
 from michell.verification.mma_rows import row_9_published_optima, row_10_mbb_with_mma
 from michell.verification.optimisation_rows import row_7_gradients, row_8_mbb_with_oc
-from michell.verification.row import CLOSED_FORM, GRADIENT, PUBLISHED_OPTIMUM, REFERENCE_CODE, Row
 
 
 def all_rows(reference: Path | str | None = None) -> list[Row]:

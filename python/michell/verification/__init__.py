@@ -12,7 +12,9 @@ report "not run" when SciPy is not installed. Row 15 runs the 3D analysis on sev
 compares the 3D solver with a sparse direct solution computed by SciPy (also "not run" without it), row 17
 counts its steps, and row 18 compares a 3D cantilever with beam theory. Row 19 checks the gradients of the 3D
 loop through the Helmholtz filter against finite differences, and row 20 the filter itself against its
-properties and a 1D closed form.
+properties and a 1D closed form. Row 21 checks the projection, row 22 the gradients of the robust
+formulation (several designs from one set of variables) in 3D, and row 23 runs the robust MBB beam and
+checks the mass, the discreteness and the order of the compliances of its three designs.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from pathlib import Path
 from michell.row import (
     CLOSED_FORM,
     CONVERGENCE,
+    DESIGN_PROPERTY,
     GRADIENT,
     INDEPENDENT_COMPUTATION,
     PUBLISHED_OPTIMUM,
@@ -55,10 +58,11 @@ from michell.verification.solver3d_rows import (
 )
 from michell.verification.mma_rows import row_9_published_optima, row_10_mbb_with_mma
 from michell.verification.optimisation_rows import row_7_gradients, row_8_mbb_with_oc
+from michell.verification.robust_rows import row_21_projection, row_22_robust_gradients, row_23_robust_mbb
 
 
 def all_rows(reference: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 20 in order. ``reference`` is the folder that holds ``top88/`` (in the repository:
+    """Runs rows 1 to 23 in order. ``reference`` is the folder that holds ``top88/`` (in the repository:
     ``tests/reference``)."""
     rows = []
     rows += row_1_element_matrix()
@@ -85,12 +89,16 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_18_cantilever()
     rows += row_19_gradients()
     rows += row_20_filter()
+    rows += row_21_projection()
+    rows += row_22_robust_gradients()
+    rows += row_23_robust_mbb()
     return rows
 
 
 __all__ = [
     "CLOSED_FORM",
     "CONVERGENCE",
+    "DESIGN_PROPERTY",
     "GRADIENT",
     "INDEPENDENT_COMPUTATION",
     "MBB_CASES",
@@ -121,4 +129,7 @@ __all__ = [
     "row_18_cantilever",
     "row_19_gradients",
     "row_20_filter",
+    "row_21_projection",
+    "row_22_robust_gradients",
+    "row_23_robust_mbb",
 ]

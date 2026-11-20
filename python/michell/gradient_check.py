@@ -8,15 +8,14 @@ the response's value, element by element:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
 
-from michell.adjoint import total_gradient
 from michell.analysis import Grid
 from michell.analysis3d import Grid3d
-from michell.evaluation import evaluate
+from michell.designs import design_chains, design_gradient, design_of, evaluate_designs
 from michell.filters import DensityFilter, HelmholtzFilter
 from michell.modules import Filter, Response
 from michell.problem import LoadCase, Material, Problem
@@ -49,12 +48,24 @@ def check_gradient(
     filters: Sequence[Filter] = (),
     step: float = 1e-6,
     elements: Sequence[int] | None = None,
+    designs: Mapping[str, Sequence[Filter]] | None = None,
 ) -> GradientCheck:
     """Compares the gradient of ``response`` at ``x`` with central differences of step ``step``, on
-    ``elements`` (default: every active element). x must stay in [0, 1] after the step."""
+    ``elements`` (default: every active element). x must stay in [0, 1] after the step.
+
+    With ``designs`` (as in ``optimise``), ``response`` names the design it reads, ``on(name, response)``,
+    and both gradients are taken through that design's filters and ``filters``, by the code the loop uses."""
     x = np.asarray(x, dtype=np.float64)
-    ev, fields = evaluate(problem, x, filters, response.reads)
-    gradient = total_gradient(problem, response, ev, fields, filters)
+    chains = design_chains(designs)
+    design, plain = design_of(response, chains)
+    reads = {design: set(plain.reads)}
+
+    def value(at):
+        _, evaluated = evaluate_designs(problem, at, filters, chains, reads)
+        return plain.value(evaluated[design][0])
+
+    base_fields, evaluated = evaluate_designs(problem, x, filters, chains, reads)
+    gradient = design_gradient(problem, plain, design, filters, chains, base_fields, evaluated)
     if elements is None:
         elements = np.flatnonzero(problem.grid.active)
     elements = np.asarray(elements)
@@ -63,10 +74,8 @@ def check_gradient(
         up, down = x.copy(), x.copy()
         up[element] += step
         down[element] -= step
-        value_up = response.value(evaluate(problem, up, filters, response.reads)[0])
-        value_down = response.value(evaluate(problem, down, filters, response.reads)[0])
-        differences[k] = (value_up - value_down) / (2 * step)
-    return GradientCheck(response.name, elements, gradient[elements], differences)
+        differences[k] = (value(up) - value(down)) / (2 * step)
+    return GradientCheck(plain.name, elements, gradient[elements], differences)
 
 
 def small_problem(seed: int = 0) -> tuple[Problem, np.ndarray, list[Filter]]:

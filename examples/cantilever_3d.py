@@ -6,6 +6,15 @@ block's mass, the Helmholtz filter of radius 2.5 element sides, the method of mo
 Run from the repository:
 
     python examples/cantilever_3d.py [--nx 64 --ny 32 --nz 32] [--passes 120] [--threads 1] [--out picture.png]
+                                     [--robust [--spread 0.25]]
+
+With `--robust` the block is optimised with the robust formulation of Wang, Lazarov and Sigmund ("On
+projection methods, convergence and robust formulations in topology optimization", Struct. Multidisc. Optim.
+43, 2011): the filtered field passes through three projections at the thresholds 0.5 + spread, 0.5 and
+0.5 - spread (the eroded, nominal and dilated designs), the goal is the compliance of the eroded design and
+the mass limit sits on the dilated design, rescaled so that the nominal design meets the 15 %; the sharpness
+beta doubles from 1 to 32 in six equal steps of the passes. The picture then shows the nominal design and is
+written to docs/images/cantilever_3d_robust.png unless `--out` is given.
 
 The picture (default: docs/images/cantilever_3d.png) shows three views side by side: the density summed along
 y (seen from the side, z up), along z (seen from above) and along x (seen from the free end, z up), each
@@ -65,8 +74,12 @@ parser.add_argument("--ny", type=int, default=32)
 parser.add_argument("--nz", type=int, default=32)
 parser.add_argument("--passes", type=int, default=120)
 parser.add_argument("--threads", type=int, default=1, help="the number of threads of the solves and the filter")
-parser.add_argument("--out", type=Path, default=Path(__file__).parent.parent / "docs" / "images" / "cantilever_3d.png")
+parser.add_argument("--out", type=Path, help="the picture (default: docs/images/cantilever_3d.png, or ..._robust.png)")
+parser.add_argument("--robust", action="store_true", help="the robust formulation: eroded, nominal, dilated")
+parser.add_argument("--spread", type=float, default=0.25, help="with --robust: the thresholds are 0.5 -+ spread")
 args = parser.parse_args()
+picture_name = "cantilever_3d_robust.png" if args.robust else "cantilever_3d.png"
+out = args.out or Path(__file__).parent.parent / "docs" / "images" / picture_name
 nx, ny, nz = args.nx, args.ny, args.nz
 
 # The block: nx by ny by nz cube elements of side 1 mm.
@@ -91,36 +104,76 @@ problem = michell.Problem(grid, held, steel, [michell.LoadCase("tip", loads)], t
 # Least compliance with at most 15 % of the block's mass.
 block_mass = steel.density_g_mm3 * grid.voxel_volume_mm3 * grid.n_elements
 mass_limit = 0.15 * block_mass
+pde_filter = michell.HelmholtzFilter(grid, 2.5, threads=args.threads)
 started = time.perf_counter()
-result = michell.optimise(
-    problem,
-    goal=michell.Compliance(),
-    limits=[michell.Limit(michell.Mass(), at_most=mass_limit)],
-    filters=[michell.HelmholtzFilter(grid, 2.5, threads=args.threads)],
-    optimiser=michell.MovingAsymptotes(),
-    x=np.full(grid.n_elements, 0.15),
-    passes=args.passes,
-)
+if not args.robust:
+    result = michell.optimise(
+        problem,
+        goal=michell.Compliance(),
+        limits=[michell.Limit(michell.Mass(), at_most=mass_limit)],
+        filters=[pde_filter],
+        optimiser=michell.MovingAsymptotes(),
+        x=np.full(grid.n_elements, 0.15),
+        passes=args.passes,
+    )
+    records, density = result.passes, result.density
+else:
+    # Continuation and rescaling, after Wang, Lazarov and Sigmund (2011) (the rescaling rule as
+    # stated by Kumar and Langelaar, Mech. Mach. Theory, 2022, doi:10.1016/j.mechmachtheory.2022.104871):
+    # beta doubles from 1 to 32 in six equal steps, each a new call of `optimise` from the x the step before
+    # ended with. Before each step the bound on the mass of the dilated design is set to mass limit *
+    # mass(dilated) / mass(nominal), both masses taken at the current x with the new beta, so that the
+    # nominal design meets the mass limit.
+    x = np.full(grid.n_elements, 0.15)
+    records = []
+    for beta in (1.0, 2.0, 4.0, 8.0, 16.0, 32.0):
+        designs = michell.robust_designs(beta, args.spread)
+        filtered = pde_filter.forward(x)
+        nominal_sum = designs["nominal"][0].forward(filtered).sum()
+        dilated_sum = designs["dilated"][0].forward(filtered).sum()
+        bound = mass_limit * dilated_sum / nominal_sum
+        result = michell.optimise(
+            problem,
+            goal=michell.on("eroded", michell.Compliance()),
+            limits=[michell.Limit(michell.on("dilated", michell.Mass()), at_most=bound)],
+            filters=[pde_filter],
+            optimiser=michell.MovingAsymptotes(),
+            x=x,
+            passes=args.passes // 6,
+            designs=designs,
+        )
+        x = result.x
+        records += result.passes
+        print(
+            f"beta {beta:4g}: bound on the dilated mass {bound:.4g} g, compliance of the eroded design "
+            f"{result.passes[-1].goal:.4g} N mm"
+        )
+    density = result.designs["nominal"]
+    for name in ("eroded", "nominal", "dilated"):  # each design solved once more for its compliance
+        u, _ = problem.solve(result.designs[name], loads)
+        print(f"{name:8}: compliance {michell.dot(loads, u):.4g} N mm")
 seconds = time.perf_counter() - started
-first, last = result.passes[0], result.passes[-1]
-mass = steel.density_g_mm3 * grid.voxel_volume_mm3 * float(result.density.sum())
+first, last = records[0], records[-1]
+mass = steel.density_g_mm3 * grid.voxel_volume_mm3 * float(density.sum())
 print(
-    f"{len(result.passes)} passes in {seconds:.1f} s on {result.threads} threads: compliance {first.goal:.4g} "
-    f"-> {last.goal:.4g} N mm, mass {mass:.4g} g of at most {mass_limit:.4g} g"
+    f"{len(records)} passes in {seconds:.1f} s on {result.threads} threads: compliance {first.goal:.4g} "
+    f"-> {last.goal:.4g} N mm, mass{' of the nominal design' if args.robust else ''} {mass:.4g} g of at most "
+    f"{mass_limit:.4g} g"
 )
 
-args.out.parent.mkdir(parents=True, exist_ok=True)
-write_greyscale_png(args.out, three_views(result.density, nx, ny, nz))
-print(f"picture written to {args.out}")
+out.parent.mkdir(parents=True, exist_ok=True)
+write_greyscale_png(out, three_views(density, nx, ny, nz))
+print(f"picture written to {out}")
 summary = {
     "shape": [nx, ny, nz],
-    "passes": len(result.passes),
+    "robust": args.robust,
+    "passes": len(records),
     "threads": result.threads,
     "seconds": seconds,
     "compliance_first": first.goal,
     "compliance_last": last.goal,
     "mass": mass,
     "mass_limit": mass_limit,
-    "solver_steps": [p.solver_steps for p in result.passes],
+    "solver_steps": [p.solver_steps for p in records],
 }
 print(json.dumps(summary))

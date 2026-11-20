@@ -1,17 +1,19 @@
 # Verification
 
-This table checks the 2D and the 3D analysis, the 2D and the 3D optimisation and the Helmholtz filter against
-closed-form solutions, against an exact integration and an independent assembly of the 3D stiffness matrix,
-against a sparse direct solution of the 3D system, against central finite differences, against the published
-88-line topology optimisation code (Andreassen et al., Struct. Multidisc. Optim. 43, 2011, run in GNU Octave; see
-`tests/reference/top88/PROVENANCE.txt`) and against published optima (Svanberg, Int. J. Numer. Meth. Eng. 24,
-1987); it also runs the 3D analysis and the Helmholtz filter on several thread counts and twice in a row and
-compares the numbers, and
-counts the steps the 3D solver takes. The measure, the set-up and the limit of every row were fixed before
-its first result was computed; a limit is never changed to make a row pass. Every limit is an upper bound on
-the measured value. Measured values are rounded to three significant digits; values at the level of
-floating-point round-off may differ in those digits from one machine to another. The code of every row, with
-its set-up, is in `python/michell/verification/`, and continuous integration runs every row on each change.
+This table checks the 2D and the 3D analysis, the 2D and the 3D optimisation, the Helmholtz filter and the
+projection against closed-form solutions, against an exact integration and an independent assembly of the 3D
+stiffness matrix, against a sparse direct solution of the 3D system, against central finite differences,
+against the published 88-line topology optimisation code (Andreassen et al., Struct. Multidisc. Optim. 43,
+2011, run in GNU Octave; see `tests/reference/top88/PROVENANCE.txt`) and against published optima (Svanberg,
+Int. J. Numer. Meth. Eng. 24, 1987); it also runs the 3D analysis and the Helmholtz filter on several thread
+counts and twice in a row and compares the numbers, counts the steps the 3D solver takes, and checks the three
+designs of a robust optimisation (Wang, Lazarov and Sigmund, Struct. Multidisc. Optim. 43, 2011) for their
+mass, their discreteness (the measure of Sigmund, Struct. Multidisc. Optim. 33, 2007) and the order of their
+compliances. The measure, the set-up and the limit of every row were fixed before its first result was
+computed; a limit is never changed to make a row pass. Every limit is an upper bound on the measured value.
+Measured values are rounded to three significant digits; values at the level of floating-point round-off may
+differ in those digits from one machine to another. The code of every row, with its set-up, is in
+`python/michell/verification/`, and continuous integration runs every row on each change.
 
 Version: michell 0.0.1 (engine 0.0.1).
 
@@ -59,8 +61,15 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 20 | Helmholtz filter keeps the sum of the field | closed form | 1.36e-13 | ≤ 1e-08 | pass | relative difference of the sums; 24 x 12 x 10 elements, 480 outside the part, radius 2.5 h, random fields |
 | 20 | Helmholtz filter is symmetric: <F x, y> = <x, F y> | closed form | 2.84e-13 | ≤ 1e-08 | pass | relative difference; 24 x 12 x 10 elements, 480 outside the part, radius 2.5 h, random fields |
 | 20 | Helmholtz filter on a long bar against the 1D solution h / (2 r) exp(-\|x\| / r) | closed form | 0.0156 | ≤ 0.02 | pass | largest relative difference at r, 2r and 3r on both sides (0.0104, 0.013, 0.0156); r = 4 h, 91 x 1 x 1 elements, 11.2 r on each side; lumped mass matrix, which keeps every filtered field in [0, 1] for any radius |
+| 21 | Projection: derivative against central differences | gradient | 3.71e-10 | ≤ 1e-07 | pass | largest difference relative to the derivative's size over beta in 1, 8, 32; eta in 0.25, 0.5, 0.75 (worst: beta 32, eta 0.25); 1000 random values, step 1e-6 |
+| 21 | Projection keeps 0 and 1: P(0) = 0, P(1) = 1 | closed form | 0 | ≤ 1e-15 | pass | largest of \|P(0)\| and \|P(1) - 1\| over beta in 1, 8, 32; eta in 0.25, 0.5, 0.75 |
+| 22 | Gradient of compliance on the eroded design (Helmholtz filter, projection) against central differences | gradient | 1.73e-07 | ≤ 1e-05 | pass | 120 elements of a 3D block with an inactive pocket, two load cases, random density; Helmholtz filter, then the projection of the eroded design (beta 8, threshold 0.75); solves at 1e-12; worst element on its own scale 1.17e-06 (reported, not judged) |
+| 22 | Gradient of mass on the dilated design (Helmholtz filter, projection) against central differences | gradient | 1.46e-07 | ≤ 1e-05 | pass | 120 elements of a 3D block with an inactive pocket, two load cases, random density; Helmholtz filter, then the projection of the dilated design (beta 8, threshold 0.25); solves at 1e-12; worst element on its own scale 3.82e-07 (reported, not judged) |
+| 23 | Robust MBB beam 120 x 40: mass of the nominal design against the asked mass | property of the design | 0.00267 | ≤ 0.01 | pass | nominal 2410 g, asked 2400 g; masses eroded, nominal, dilated: 1950, 2410, 2840 g; last bound on the dilated mass 2840 g; MBB beam 120 x 40, density filter radius 4.8, spread 0.25, beta 1 to 32 doubling every 50 passes (300 passes), MMA |
+| 23 | Robust MBB beam 120 x 40: non-discreteness of the nominal design, sum 4 rho (1 - rho) / n | property of the design | 0.0131 | ≤ 0.1 | pass | over all 4800 elements (Sigmund 2007); MBB beam 120 x 40, density filter radius 4.8, spread 0.25, beta 1 to 32 doubling every 50 passes (300 passes), MMA |
+| 23 | Robust MBB beam 120 x 40: compliance eroded >= nominal >= dilated | property of the design | 0 | ≤ 0 | pass | compliance eroded 236, nominal 195, dilated 175 N mm; measured: the largest relative step out of that order, 0 when in order; MBB beam 120 x 40, density filter radius 4.8, spread 0.25, beta 1 to 32 doubling every 50 passes (300 passes), MMA |
 
-42 passed, 0 failed, 0 not run.
+49 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 

@@ -147,3 +147,16 @@ def test_the_3d_cantilever_example_meets_its_mass_limit_and_halves_the_complianc
     assert summary["mass"] <= summary["mass_limit"] * (1 + 1e-6)
     assert summary["compliance_last"] <= 0.5 * summary["compliance_first"]
     assert picture.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+@pytest.mark.slow
+def test_the_3d_cantilever_example_runs_with_the_robust_formulation(tmp_path):
+    picture = tmp_path / "cantilever_robust.png"
+    command = [sys.executable, str(ROOT / "examples" / "cantilever_3d.py"), "--nx", "24", "--ny", "12", "--nz", "12"]
+    command += ["--passes", "36", "--threads", "4", "--robust", "--out", str(picture)]
+    result = subprocess.run(command, capture_output=True, text=True, check=True)
+    summary = json.loads(result.stdout.strip().splitlines()[-1])
+    assert summary["robust"] is True and summary["passes"] == 36
+    for name in ("eroded", "nominal", "dilated"):
+        assert f"{name:8}: compliance" in result.stdout
+    assert picture.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"

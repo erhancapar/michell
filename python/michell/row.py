@@ -17,6 +17,7 @@ PUBLISHED_OPTIMUM = "published optimum"
 INDEPENDENT_COMPUTATION = "independent computation"
 REPEATABILITY = "repeatability"
 CONVERGENCE = "convergence"
+DESIGN_PROPERTY = "property of the design"
 
 
 @dataclass(frozen=True)

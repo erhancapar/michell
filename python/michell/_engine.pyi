@@ -240,6 +240,21 @@ class HelmholtzFilter:
     def backward(self, x: Vector, grad: Vector) -> Vector:
         """dg/dx from dg/drho: the same symmetric map applied to grad; x is only checked for its length."""
 
+class Projection:
+    """The projection (Wang, Lazarov and Sigmund 2011), applied to each value on its own:
+    P(x) = (tanh(beta eta) + tanh(beta (x - eta))) / (tanh(beta eta) + tanh(beta (1 - eta))), with
+    beta > 0 and 0 <= eta <= 1. P(0) = 0 and P(1) = 1."""
+
+    beta: float
+    eta: float
+
+    def __init__(self, beta: float, eta: float = 0.5) -> None: ...
+    def forward(self, x: Vector) -> Vector:
+        """P of each entry of x."""
+
+    def backward(self, x: Vector, grad: Vector) -> Vector:
+        """dg/dx from dg/dP: each entry of grad times P' at the same entry of x."""
+
 class Oc:
     """The optimality-criteria update of the 88-line code: one goal, one limit linear in the density."""
 

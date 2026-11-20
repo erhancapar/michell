@@ -5,7 +5,8 @@ MMA update and `dot` exist. The 3D analysis exists (`Grid3d`, `Elasticity3d`) an
 it is given: its solver is conjugate gradients preconditioned by one multigrid V-cycle (Galerkin coarse
 matrices, damped Jacobi smoothing, a direct solve on the coarsest level), and it checks when it is built that
 the part is held (see "Errors"). The Helmholtz filter (`HelmholtzFilter`) exists on the 3D grid, on threads
-like the 3D analysis. The rest of the table below is planned.
+like the 3D analysis, and the projection (`Projection`) on a field of any grid. The rest of the table below
+is planned.
 
 ## The rule
 
@@ -67,8 +68,8 @@ Array rules:
 ## Threads
 
 A long call (a solve, an optimiser update, the Helmholtz filter, which solves a linear system) copies its inputs
-and then releases Python's global lock, so other Python threads keep running; a short call (the density filter,
-a per-element quantity) keeps the lock and reads in place.
+and then releases Python's global lock, so other Python threads keep running; a short call (the density
+filter, the projection, a per-element quantity) keeps the lock and reads in place.
 The number of threads is an explicit input (problem file or argument), never a guess from the environment, and
 it is written into every result.
 
@@ -84,7 +85,7 @@ one pool of worker threads per distinct count (from the `rayon` crate), started 
 asked for and shared by every object that asks for the same count. The Helmholtz filter takes its thread
 count the same way, `HelmholtzFilter(grid, radius, threads=1)`, and so does a 3D `Problem`, which hands it to
 its analysis; the thread count is written into the result of an optimisation (`Result.threads`). The 2D
-analysis, the density filter and the optimiser updates run on one thread.
+analysis, the density filter, the projection and the optimiser updates run on one thread.
 
 ## Same input, same output
 

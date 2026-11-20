@@ -10,6 +10,7 @@
 //! - `elasticity3d`: `michell.Elasticity3d` and `michell.element_stiffness_3d`;
 //! - `filter`: `michell.DensityFilter`;
 //! - `helmholtz_filter`: `michell.HelmholtzFilter`;
+//! - `projection`: `michell.Projection`, the smoothed step towards 0 or 1;
 //! - `oc`: `michell.Oc`, the optimality-criteria update;
 //! - `mma`: `michell.Mma`, the method of moving asymptotes;
 //! - `dot`: `michell.dot`, the dot product of two vectors.
@@ -25,6 +26,7 @@ mod grid3d;
 mod helmholtz_filter;
 mod mma;
 mod oc;
+mod projection;
 
 use pyo3::pymodule;
 
@@ -53,6 +55,8 @@ mod _engine {
     use super::mma::Mma;
     #[pymodule_export]
     use super::oc::Oc;
+    #[pymodule_export]
+    use super::projection::Projection;
 
     /// Return the version of the Rust engine crate.
     #[pyfunction]

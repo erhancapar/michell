@@ -15,6 +15,7 @@ import numpy as np
 
 from michell import _engine
 from michell._engine import dot
+from michell.designs import On
 from michell.evaluation import Evaluation
 from michell.modules import Filter
 from michell.optimise import Limit
@@ -38,6 +39,11 @@ class OptimalityCriteria:
         if len(limits) != 1:
             raise ValueError(f"OC handles exactly one limit; got {len(limits)}")
         limit = limits[0]
+        if isinstance(limit.response, On):
+            raise ValueError(
+                "OC measures its limit on the output of the filters and cannot read a named design; use "
+                "MovingAsymptotes (MMA) with designs"
+            )
         if limit.response.reads:
             raise ValueError(
                 f"OC needs a limit that reads no physics; {limit.response.name} reads {limit.response.reads}"

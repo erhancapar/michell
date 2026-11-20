@@ -10,7 +10,11 @@ The package holds:
 - the module interface (``docs/design/modules.md``): ``Response``, ``Filter``, ``Partials`` and the
   read-only ``Evaluation``, with ``Row`` (``michell.row``), the result of one check, which a module's
   self-test and the verification table both use;
-- the responses ``Compliance`` and ``Mass``, the ``DensityFilter`` (2D) and the ``HelmholtzFilter`` (3D);
+- the responses ``Compliance`` and ``Mass``, the ``DensityFilter`` (2D), the ``HelmholtzFilter`` (3D) and
+  the ``Projection`` (both);
+- several designs from one set of design variables (``michell.designs``): ``on``, which names the design a
+  goal or a limit reads, and ``robust_designs``, the eroded, nominal and dilated designs of the robust
+  formulation;
 - the optimisation loop ``optimise`` with its ``Limit``, the ``OptimalityCriteria`` optimiser (the engine's
   ``Oc`` update), the ``MovingAsymptotes`` optimiser (the engine's ``Mma`` update), and the
   finite-difference gradient check ``check_gradient``;
@@ -37,8 +41,9 @@ from michell._engine import (
 )
 from michell.analysis import Elasticity, Grid
 from michell.analysis3d import Elasticity3d, Grid3d
+from michell.designs import On, on, robust_designs
 from michell.evaluation import Evaluation
-from michell.filters import DensityFilter, HelmholtzFilter
+from michell.filters import DensityFilter, HelmholtzFilter, Projection
 from michell.gradient_check import GradientCheck, check_gradient, check_on_small_problem
 from michell.mma import MovingAsymptotes
 from michell.modules import Filter, Partials, Response
@@ -69,10 +74,12 @@ __all__ = [
     "Mma",
     "MovingAsymptotes",
     "Oc",
+    "On",
     "OptimalityCriteria",
     "Partials",
     "Pass",
     "Problem",
+    "Projection",
     "Response",
     "Result",
     "Row",
@@ -83,5 +90,7 @@ __all__ = [
     "element_stiffness",
     "element_stiffness_3d",
     "engine_version",
+    "on",
     "optimise",
+    "robust_designs",
 ]

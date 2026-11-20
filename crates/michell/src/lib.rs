@@ -4,7 +4,7 @@
 //! linear elasticity), the 3D analysis (the grid of cube voxels, the 8-node element, a matrix-free
 //! product solved by conjugate gradients with a multigrid preconditioner, on as many threads as asked
 //! for) and the pieces of the optimisation loop that run over every element (the density filter, the Helmholtz
-//! filter, the OC update and the method of moving asymptotes), with the dot product the loop needs. The crate contains
+//! filter, the projection, the OC update and the method of moving asymptotes), with the dot product the loop needs. The crate contains
 //! no unsafe code.
 //! Each file has one job:
 //!
@@ -29,6 +29,8 @@
 //! - `material`: the material law both analyses share (modified SIMP);
 //! - `density_filter`: the density filter with cone weights, forward and backward;
 //! - `helmholtz_filter`: the PDE (Helmholtz) filter on the 3D grid, forward and backward;
+//! - `projection`: the smoothed step (tanh projection) towards 0 or 1 around a threshold, forward and
+//!   backward;
 //! - `oc`: the optimality-criteria update;
 //! - `mma`: the method of moving asymptotes (asymptotes, approximations, move limits);
 //! - `mma_subproblem`: the interior-point solver of the MMA subproblem;
@@ -59,6 +61,7 @@ pub mod multigrid_levels;
 pub mod multigrid_smoother;
 pub mod multigrid_transfer;
 pub mod oc;
+pub mod projection;
 pub mod quad4;
 #[cfg(test)]
 mod smoother_study;
@@ -76,6 +79,7 @@ pub use helmholtz_filter::HelmholtzFilter;
 pub use material::Material;
 pub use mma::Mma;
 pub use oc::Oc;
+pub use projection::Projection;
 
 /// The version of this crate, as written in `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -2,7 +2,8 @@
 
 Status: design note, kept in step with the code. The interface, the `Compliance` and `Mass` responses, the
 optimisation loop on a 2D or a 3D grid (a `Problem` picks the analysis from the grid's type), the density
-filter (2D), the Helmholtz filter (3D) and both optimisers below exist.
+filter (2D), the Helmholtz filter (3D), the projection (both), several designs from one set of variables
+with the robust set, and both optimisers below exist.
 
 ## The picture
 
@@ -80,6 +81,41 @@ class Filter(Protocol):
 
 Filters are applied in the order the problem file lists them. The density filter (cone weights, 2D), the
 Helmholtz filter (a PDE filter, 3D), the projection and symmetry are built into the engine; a manufacturing rule such as "no overhang steeper than 45 degrees" is one more filter.
+
+## Several designs from one set of variables
+
+One x can feed several density fields. `optimise(..., designs=...)` takes a mapping from a name to a list
+of filters; each named design is the output of the problem's `filters` passed through its own list, and it
+is a density field of its own, with its own solves:
+
+```
+x  ->  filters  ->  rho  -+->  design filters of "eroded"   ->  rho_eroded   ->  solve  ->  goal
+                          +->  design filters of "nominal"  ->  rho_nominal
+                          +->  design filters of "dilated"  ->  rho_dilated  ->  limit (mass: no solve)
+```
+
+- **`on(name, response)`** says which design a goal or a limit reads:
+  `goal=on("eroded", Compliance())`, `Limit(on("dilated", Mass()), at_most=...)`. The response itself does
+  not change: it sees the one `Evaluation` of its design and nothing else. When `designs` is given, every
+  goal and limit must name its design (an error otherwise); when it is not, nothing may name one, and the
+  loop works as before, the output of `filters` being the one design.
+- **Only what is read is computed.** A design no goal or limit reads is not evaluated in the loop, and a
+  design is solved only for the physics its responses read (a mass limit reads none). The final field of
+  every design is in `Result.designs`.
+- **Gradients** go back through the design's own filters, then through `filters`, so every design pulls on
+  the same x. Warm starts are kept per design (each design's solves start from that design's states of the
+  previous pass), and `Pass.design_solver_steps` holds the solver steps per design solved.
+- **`robust_designs(beta, spread)`** is the set this was made for, the robust formulation of Wang, Lazarov
+  and Sigmund ("On projection methods, convergence and robust formulations in topology optimization",
+  Struct. Multidisc. Optim. 43, 2011): `eroded`, `nominal` and `dilated`, each one `Projection` of
+  sharpness `beta` at the threshold 0.5 + spread, 0.5 and 0.5 - spread, standing for a part made uniformly
+  too thin, as drawn and too thick. The robust goal is the worst of the three designs. For compliance the
+  worst is always the eroded one: its density is nowhere higher than the nominal one's (the projection
+  falls as the threshold rises), and stiffness only grows with density, so compliance only falls with it.
+  The goal therefore reads `eroded` alone, and one solve per load case replaces three. The mass limit sits
+  on `dilated`, the heaviest; its bound is rescaled between continuation steps so that `nominal` meets the
+  asked mass (the rule as stated by Kumar and Langelaar, Mech. Mach. Theory, 2022). Continuation (raising `beta`) and that rescaling are a loop over
+  `beta` in the user's script that calls `optimise` again from the last x; the library holds no schedule.
 
 ## Two small examples
 

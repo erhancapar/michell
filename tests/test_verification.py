@@ -109,3 +109,17 @@ def test_the_mbb_example_runs_and_writes_its_picture(tmp_path):
     assert (width, height) == (600, 200)
     pixels = [raw[row * (width + 1) + 1 : (row + 1) * (width + 1)] for row in range(height)]
     assert min(min(row) for row in pixels) < 10 and max(max(row) for row in pixels) > 245  # solid and void
+
+
+@pytest.mark.slow
+def test_the_robust_mbb_example_runs_and_writes_its_three_designs(tmp_path):
+    picture = tmp_path / "mbb_robust.png"
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "examples" / "mbb_beam_robust.py"), str(picture)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "nominal" in result.stdout and "non-discreteness" in result.stdout
+    width, height, raw = read_greyscale_png(picture)
+    assert (width, height) == (3 * 180, 3 * (3 * 60) + 2 * 12)  # three designs of 180 x 60 elements, 3 px each

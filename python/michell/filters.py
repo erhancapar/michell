@@ -91,3 +91,37 @@ class HelmholtzFilter(_engine.HelmholtzFilter):
             compared("a long bar against the 1D solution h / (2 r) exp(-|x| / r)", float(rho[n // 2 + 4]), expected, 0.02)
         )
         return rows
+
+
+class Projection(_engine.Projection):
+    """The projection, a smoothed step towards 0 or 1 around the threshold ``eta`` (Wang, Lazarov and
+    Sigmund, "On projection methods, convergence and robust formulations in topology optimization",
+    Struct. Multidisc. Optim. 43, 2011):
+
+        P(x) = (tanh(beta eta) + tanh(beta (x - eta))) / (tanh(beta eta) + tanh(beta (1 - eta))),
+
+    applied to each value on its own, so it works on a 2D or a 3D field and needs no grid.
+    ``Projection(beta, eta=0.5)`` with the sharpness ``beta > 0`` and ``0 <= eta <= 1``; ``forward(x)`` and
+    ``backward(x, grad)`` (each entry of ``grad`` times P' at that entry of ``x``) run in the engine.
+    P(0) = 0 and P(1) = 1 for every beta and eta.
+    """
+
+    name = "projection"
+
+    def self_test(self) -> list[Row]:
+        """The two ends kept, the threshold mapped to 1/2 when eta = 1/2 (the curve is then symmetric about
+        that point), and the derivative against central differences (verification row 21 has the full
+        check with its limits)."""
+        rows = []
+        ends = self.forward(np.array([0.0, 1.0]))
+        rows.append(compared("P(0) = 0", float(ends[0]), 0.0, 1e-15))
+        rows.append(compared("P(1) = 1", float(ends[1]), 1.0, 1e-15))
+        symmetric = Projection(8.0, 0.5)
+        rows.append(compared("P(1/2) = 1/2 when eta = 1/2", float(symmetric.forward(np.array([0.5]))[0]), 0.5, 1e-15))
+        x = np.linspace(0.05, 0.95, 19)
+        step = 1e-6
+        difference = (self.forward(x + step) - self.forward(x - step)) / (2 * step)
+        derivative = self.backward(x, np.ones_like(x))
+        largest = float(np.abs(difference - derivative).max() / np.abs(derivative).max())
+        rows.append(compared("the derivative against central differences", largest, 0.0, 1e-7))
+        return rows

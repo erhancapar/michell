@@ -7,13 +7,15 @@
 //! - `grid`: `michell.Grid`;
 //! - `elasticity`: `michell.Elasticity` and `michell.element_stiffness`;
 //! - `filter`: `michell.DensityFilter`;
-//! - `oc`: `michell.Oc`, the optimality-criteria update.
+//! - `oc`: `michell.Oc`, the optimality-criteria update;
+//! - `mma`: `michell.Mma`, the method of moving asymptotes.
 
 mod arrays;
 mod elasticity;
 mod errors;
 mod filter;
 mod grid;
+mod mma;
 mod oc;
 
 use pyo3::pymodule;
@@ -31,6 +33,8 @@ mod _engine {
     use super::filter::DensityFilter;
     #[pymodule_export]
     use super::grid::Grid;
+    #[pymodule_export]
+    use super::mma::Mma;
     #[pymodule_export]
     use super::oc::Oc;
 

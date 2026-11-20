@@ -23,7 +23,7 @@ classifiers = [
 michell = "michell.cli:main"
 
 [dependency-groups]
-test = ["pytest>=8"]
+test = ["pytest>=8", "scipy"]  # SciPy computes reference optima independently in the tests
 
 [tool.maturin]
 manifest-path = "crates/michell-py/Cargo.toml"

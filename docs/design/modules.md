@@ -1,7 +1,7 @@
 # Modules: how goals, limits and shape rules plug in
 
-Status: design note, kept in step with the code. The interface, the `Compliance` and `Mass` responses and the
-2D optimisation loop exist.
+Status: design note, kept in step with the code. The interface, the `Compliance` and `Mass` responses, the
+2D optimisation loop and both optimisers below exist.
 
 ## The picture
 
@@ -119,8 +119,12 @@ class Optimiser(Protocol):
     def update(self, x, goal, d_goal, limits, d_limits) -> np.ndarray: ...   # the next design variables
 ```
 
-Two optimisers implement it: the classic optimality-criteria update (one limit, kept to reproduce the published
-88-line result) and the method of moving asymptotes (any number of limits).
+Two optimisers implement it: the classic optimality-criteria update (`OptimalityCriteria`: one limit, kept to
+reproduce the published 88-line result) and the method of moving asymptotes (`MovingAsymptotes`: any number of
+limits). MMA's constants are absolute numbers, so `MovingAsymptotes` hands it the goal divided by its value at
+the first pass and each limit as its relative excess over its bound, `(value - at_most) / |at_most|`; both
+scales stay fixed for the run. The goal's value first reaches the optimiser in `update`, so its scale is taken
+there, not in `start`.
 
 ## What every module must bring, and what it gets for free
 

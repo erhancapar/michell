@@ -1,7 +1,10 @@
 //! Reading NumPy arrays from Python, by the rules of `docs/design/engine-boundary.md`: a 1-D,
-//! contiguous float64 array is read in place; anything else is refused, never converted.
+//! contiguous float64 array is read in place (or copied, for a long call), a 2-D row-major float64 array
+//! is copied (`copy_matrix`); anything else is refused, never converted.
 
-use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray1, PyUntypedArray, PyUntypedArrayMethods};
+use numpy::{
+    PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1, PyUntypedArray, PyUntypedArrayMethods,
+};
 use pyo3::prelude::*;
 
 use crate::errors::invalid_input;
@@ -86,4 +89,42 @@ pub fn as_slice<'a>(
 pub fn copy_vector(value: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f64>> {
     let array = read_vector(value, name)?;
     Ok(as_slice(value.py(), &array, name)?.to_vec())
+}
+
+/// Reads a 2-D, C-contiguous float64 array and copies it into memory the engine owns, row by row.
+/// Returns the number of rows, the number of columns and the numbers. For a call that releases Python's
+/// lock, like `copy_vector`.
+pub fn copy_matrix(value: &Bound<'_, PyAny>, name: &str) -> PyResult<(usize, usize, Vec<f64>)> {
+    let py = value.py();
+    let Ok(array) = value.cast::<PyArray2<f64>>() else {
+        return Err(invalid_input(
+            py,
+            format!(
+                "{name} must be a 2-D NumPy array of float64; got {}",
+                describe(value)
+            ),
+        ));
+    };
+    let Ok(readonly) = array.try_readonly() else {
+        return Err(invalid_input(
+            py,
+            format!("{name} is being written elsewhere and cannot be read now"),
+        ));
+    };
+    let shape = readonly.shape();
+    let (rows, columns) = (shape[0], shape[1]);
+    // `as_slice` also accepts a column-major (Fortran) array, whose numbers would come out in the wrong
+    // order, so row-major order is checked first.
+    let values = if array.is_c_contiguous() {
+        readonly.as_slice().ok()
+    } else {
+        None
+    };
+    let Some(values) = values else {
+        return Err(invalid_input(
+            py,
+            format!("{name} must be C-contiguous in memory; pass numpy.ascontiguousarray({name})"),
+        ));
+    };
+    Ok((rows, columns, values.to_vec()))
 }

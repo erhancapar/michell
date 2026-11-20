@@ -1,7 +1,8 @@
 """Type hints for the compiled Rust module (source: crates/michell-py/src/).
 
-Every array argument must be a 1-D, contiguous float64 NumPy array; anything else is refused with
-``EngineError`` (code ``invalid_input``), never converted. Every result is a new array.
+Every array argument must be a 1-D, contiguous float64 NumPy array (``Mma.update``'s ``d_limits``: a 2-D,
+C-contiguous float64 array); anything else is refused with ``EngineError`` (code ``invalid_input``), never
+converted. Every result is a new array.
 """
 
 import numpy as np
@@ -12,7 +13,8 @@ Vector = npt.NDArray[np.float64]
 class EngineError(Exception):
     """An error from the engine.
 
-    ``code`` is stable (``invalid_input``, ``singular_system``, ``internal_error``), ``message`` is for
+    ``code`` is stable (``invalid_input``, ``singular_system``, ``solver_not_converged``,
+    ``internal_error``), ``message`` is for
     people, ``details`` holds the numbers involved.
     """
 
@@ -129,3 +131,26 @@ class Oc:
         """The new design variables. d_goal and d_limit are gradients with respect to x; the limit,
         sum(limit_weights * rho) <= limit_bound, is measured on rho = filter.forward(x_new) inside the
         bisection (rho = x_new without a filter). Inactive elements keep their value."""
+
+class Mma:
+    """The method of moving asymptotes (Svanberg 1987, in the form of Svanberg's 2007 note) for variables
+    between ``x_min`` and ``x_max`` and ``n_limits`` limits written f_i(x) <= 0.
+
+    The object remembers the two previous designs and the asymptotes, so one ``Mma`` belongs to one run.
+    """
+
+    n_variables: int
+    n_limits: int
+    iteration: int
+    """How many updates have been made."""
+
+    def __init__(self, x_min: Vector, x_max: Vector, n_limits: int) -> None: ...
+    def asymptotes(self) -> tuple[Vector, Vector]:
+        """The lower and upper asymptotes of the last update."""
+
+    def update(
+        self, x: Vector, goal: float, d_goal: Vector, limits: Vector, d_limits: npt.NDArray[np.float64]
+    ) -> Vector:
+        """The next design. ``goal`` and ``d_goal``: f_0(x) and its gradient; ``limits``: f_i(x), one
+        per limit; ``d_limits``: their gradients, a C-contiguous array of shape (n_limits, n_variables).
+        A subproblem the solver cannot finish raises ``EngineError`` with code ``solver_not_converged``."""

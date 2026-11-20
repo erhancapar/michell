@@ -9,7 +9,8 @@ The package holds:
   the read-only ``Evaluation``;
 - the responses ``Compliance`` and ``Mass``, and the ``DensityFilter``;
 - the optimisation loop ``optimise`` with its ``Limit``, the ``OptimalityCriteria`` optimiser (the engine's
-  ``Oc`` update), and the finite-difference gradient check ``check_gradient``;
+  ``Oc`` update), the ``MovingAsymptotes`` optimiser (the engine's ``Mma`` update), and the
+  finite-difference gradient check ``check_gradient``;
 - ``EngineError``, the error every engine call raises.
 
 Masks (active elements, held degrees of freedom) may be given as boolean arrays.
@@ -19,6 +20,7 @@ from importlib.metadata import version as _version
 
 from michell._engine import (
     EngineError,
+    Mma,
     Oc,
     element_stiffness,
     engine_version,
@@ -27,6 +29,7 @@ from michell.analysis import Elasticity, Grid
 from michell.evaluation import Evaluation
 from michell.filters import DensityFilter
 from michell.gradient_check import GradientCheck, check_gradient, check_on_small_problem
+from michell.mma import MovingAsymptotes
 from michell.modules import Filter, Partials, Response, Row
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, Pass, Result, optimise
@@ -48,6 +51,8 @@ __all__ = [
     "LoadCase",
     "Mass",
     "Material",
+    "Mma",
+    "MovingAsymptotes",
     "Oc",
     "OptimalityCriteria",
     "Partials",

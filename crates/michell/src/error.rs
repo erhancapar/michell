@@ -12,6 +12,9 @@ pub enum ErrorCode {
     InvalidInput,
     /// The stiffness matrix cannot be factored: the part is not held against every rigid motion.
     SingularSystem,
+    /// An iterative solver stopped before reaching its tolerance (the details hold the residual and the
+    /// number of steps).
+    SolverNotConverged,
     /// A bug in michell (for example a caught panic). Never the user's fault.
     InternalError,
 }
@@ -22,6 +25,7 @@ impl ErrorCode {
         match self {
             ErrorCode::InvalidInput => "invalid_input",
             ErrorCode::SingularSystem => "singular_system",
+            ErrorCode::SolverNotConverged => "solver_not_converged",
             ErrorCode::InternalError => "internal_error",
         }
     }
@@ -91,6 +95,10 @@ mod tests {
     fn codes_have_their_published_names() {
         assert_eq!(ErrorCode::InvalidInput.as_str(), "invalid_input");
         assert_eq!(ErrorCode::SingularSystem.as_str(), "singular_system");
+        assert_eq!(
+            ErrorCode::SolverNotConverged.as_str(),
+            "solver_not_converged"
+        );
         assert_eq!(ErrorCode::InternalError.as_str(), "internal_error");
     }
 

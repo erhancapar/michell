@@ -43,6 +43,8 @@ class Grid:
     ny: int
     h: float
     t: float
+    voxel_volume_mm3: float
+    """Volume of one element, h * h * t."""
     n_elements: int
     n_nodes: int
     n_dofs: int
@@ -94,3 +96,36 @@ class Elasticity:
     def element_stress(self, rho: Vector, u: Vector) -> npt.NDArray[np.float64]:
         """Stress at each element's centre with modulus E(rho_e), MPa; shape (n_elements, 3):
         sx, sy, txy. Inactive elements give zeros."""
+
+class DensityFilter:
+    """The density filter with cone weights, over the active elements of a grid:
+    rho_e = sum_j w_ej x_j / sum_j w_ej, w_ej = max(0, radius - distance between centres), radius in mm.
+    """
+
+    radius: float
+
+    def __init__(self, grid: Grid, radius: float) -> None: ...
+    def forward(self, x: Vector) -> Vector:
+        """rho, one value per element (0 on inactive elements)."""
+
+    def backward(self, x: Vector, grad: Vector) -> Vector:
+        """dg/dx from dg/drho; x is the field the filter was applied to (only its length is checked)."""
+
+class Oc:
+    """The optimality-criteria update of the 88-line code: one goal, one limit linear in the density."""
+
+    move_limit: float
+
+    def __init__(self, grid: Grid, move_limit: float = 0.2) -> None: ...
+    def update(
+        self,
+        x: Vector,
+        d_goal: Vector,
+        d_limit: Vector,
+        limit_weights: Vector,
+        limit_bound: float,
+        filter: DensityFilter | None = None,
+    ) -> Vector:
+        """The new design variables. d_goal and d_limit are gradients with respect to x; the limit,
+        sum(limit_weights * rho) <= limit_bound, is measured on rho = filter.forward(x_new) inside the
+        bisection (rho = x_new without a filter). Inactive elements keep their value."""

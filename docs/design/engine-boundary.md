@@ -1,7 +1,7 @@
 # The engine boundary: what is Rust, what is Python
 
-Status: design note, kept in step with the code. The 2D analysis objects exist; the rest of the table below is
-planned.
+Status: design note, kept in step with the code. The 2D analysis, the density filter and the OC update exist;
+the rest of the table below is planned.
 
 ## The rule
 
@@ -38,7 +38,8 @@ objects. Planned objects, with the stage that brings them:
 | `Grid` | built from shape, voxel size and an active-element mask | 1 |
 | `Elasticity` | `solve(rho, loads, held_values=None) -> u`, `adjoint(rho, rhs) -> lambda`, `sensitivity(rho, u, lambda)` (the term $-\lambda^T (\partial K / \partial \rho_e)\, u$ per element, sign included), `element_strain_energy`, `element_stress` | 1 (2D), 2 (3D) |
 | `DensityFilter`, `Projection` | `forward(x)`, `backward(x, grad)` | 1, 2 |
-| `Oc`, `Mma` | `update(x, goal, d_goal, limits, d_limits) -> x` | 1 |
+| `Oc` | `update(x, d_goal, d_limit, limit_weights, limit_bound, filter=None) -> x`: the classic update for one limit, measured on the filtered field | 1 |
+| `Mma` | the update step of the method of moving asymptotes, for any number of limits | 1 |
 | `HeatConduction` | same shape as `Elasticity` | 4 |
 
 Array rules:
@@ -59,7 +60,8 @@ Array rules:
 
 ## Threads
 
-The engine releases Python's global lock for the length of every call, so other Python threads keep running.
+A long call (a solve, an optimiser update) copies its inputs and then releases Python's global lock, so other
+Python threads keep running; a short call (a filter, a per-element quantity) keeps the lock and reads in place.
 The number of threads is an explicit input (problem file or argument), never a guess from the environment, and
 it is written into every result.
 

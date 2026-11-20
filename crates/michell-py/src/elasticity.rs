@@ -3,14 +3,14 @@
 use numpy::{PyArray1, PyArray2, PyArrayMethods};
 use pyo3::prelude::*;
 
-use crate::arrays::{as_slice, read_mask, read_vector};
-use crate::errors::{invalid_input, run_engine};
+use crate::arrays::{as_slice, copy_vector, read_mask, read_vector};
+use crate::errors::{invalid_input, run_engine, run_in_place};
 use crate::grid::Grid;
 
 /// Linear elasticity on one grid with one set of held degrees of freedom.
 ///
 /// Material law: E(rho) = e_min + rho^penalty (youngs_modulus - e_min), plane stress.
-#[pyclass(frozen, module = "michell", name = "Elasticity")]
+#[pyclass(frozen, subclass, module = "michell", name = "Elasticity")]
 pub struct Elasticity {
     inner: michell::Elasticity2d,
 }
@@ -44,6 +44,8 @@ impl Elasticity {
 
     /// Displacements u with K(rho) u = loads. Loads on held degrees of freedom are ignored.
     /// `held_values` (one entry per degree of freedom) sets the displacement of the held ones.
+    ///
+    /// A long call: the inputs are copied, then Python's lock is released for the solve.
     #[pyo3(signature = (rho, loads, held_values = None))]
     fn solve<'py>(
         &self,
@@ -52,33 +54,30 @@ impl Elasticity {
         loads: &Bound<'py, PyAny>,
         held_values: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyArray1<f64>>> {
-        let rho = read_vector(rho, "rho")?;
-        let loads = read_vector(loads, "loads")?;
+        let rho = copy_vector(rho, "rho")?;
+        let loads = copy_vector(loads, "loads")?;
         let held_values = match held_values {
-            Some(values) => Some(read_vector(values, "held_values")?),
+            Some(values) => Some(copy_vector(values, "held_values")?),
             None => None,
         };
-        let rho = as_slice(py, &rho, "rho")?;
-        let loads = as_slice(py, &loads, "loads")?;
-        let held_values = match &held_values {
-            Some(values) => Some(as_slice(py, values, "held_values")?),
-            None => None,
-        };
-        let u = run_engine(py, || self.inner.solve(rho, loads, held_values))?;
+        let u = run_engine(py, || {
+            self.inner.solve(&rho, &loads, held_values.as_deref())
+        })?;
         Ok(PyArray1::from_vec(py, u))
     }
 
     /// lambda with K(rho) lambda = rhs, every held degree of freedom at zero.
+    ///
+    /// A long call: the inputs are copied, then Python's lock is released for the solve.
     fn adjoint<'py>(
         &self,
         py: Python<'py>,
         rho: &Bound<'py, PyAny>,
         rhs: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyArray1<f64>>> {
-        let rho = read_vector(rho, "rho")?;
-        let rhs = read_vector(rhs, "rhs")?;
-        let (rho, rhs) = (as_slice(py, &rho, "rho")?, as_slice(py, &rhs, "rhs")?);
-        let lambda = run_engine(py, || self.inner.adjoint(rho, rhs))?;
+        let rho = copy_vector(rho, "rho")?;
+        let rhs = copy_vector(rhs, "rhs")?;
+        let lambda = run_engine(py, || self.inner.adjoint(&rho, &rhs))?;
         Ok(PyArray1::from_vec(py, lambda))
     }
 
@@ -97,7 +96,7 @@ impl Elasticity {
         let rho = as_slice(py, &rho, "rho")?;
         let u = as_slice(py, &u, "u")?;
         let lam = as_slice(py, &lam, "lam")?;
-        let result = run_engine(py, || self.inner.sensitivity(rho, u, lam))?;
+        let result = run_in_place(py, || self.inner.sensitivity(rho, u, lam))?;
         Ok(PyArray1::from_vec(py, result))
     }
 
@@ -111,7 +110,7 @@ impl Elasticity {
         let rho = read_vector(rho, "rho")?;
         let u = read_vector(u, "u")?;
         let (rho, u) = (as_slice(py, &rho, "rho")?, as_slice(py, &u, "u")?);
-        let result = run_engine(py, || self.inner.element_strain_energy(rho, u))?;
+        let result = run_in_place(py, || self.inner.element_strain_energy(rho, u))?;
         Ok(PyArray1::from_vec(py, result))
     }
 
@@ -126,7 +125,7 @@ impl Elasticity {
         let rho = read_vector(rho, "rho")?;
         let u = read_vector(u, "u")?;
         let (rho, u) = (as_slice(py, &rho, "rho")?, as_slice(py, &u, "u")?);
-        let flat = run_engine(py, || self.inner.element_stress(rho, u))?;
+        let flat = run_in_place(py, || self.inner.element_stress(rho, u))?;
         let n_elements = flat.len() / 3;
         PyArray1::from_vec(py, flat).reshape([n_elements, 3])
     }

@@ -1,5 +1,5 @@
-//! `michell.EngineError`, and running an engine call safely: with Python's lock released and with any
-//! panic caught, so that no panic ever reaches Python.
+//! `michell.EngineError`, and running an engine call safely: with any panic caught, so that no panic ever
+//! reaches Python, and with Python's lock released for long calls.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -50,14 +50,35 @@ pub fn invalid_input(py: Python<'_>, message: impl Into<String>) -> PyErr {
 
 /// Runs `work` with Python's lock released and turns its result into a Python result.
 ///
-/// A panic inside `work` is a bug in michell: it is caught and reported as `internal_error` instead of
-/// crossing into Python.
+/// For long calls (a solve, an optimiser update). While the lock is released, other Python threads run
+/// and could change a NumPy array, so `work` must only read owned copies of its input arrays, never the
+/// arrays themselves (rule 2 of "What crosses the boundary" in `docs/design/engine-boundary.md`).
 pub fn run_engine<T, F>(py: Python<'_>, work: F) -> PyResult<T>
 where
     T: Send,
     F: FnOnce() -> Result<T, michell::EngineError> + Send,
 {
     let outcome = py.detach(|| catch_unwind(AssertUnwindSafe(work)));
+    finish(py, outcome)
+}
+
+/// Runs `work` while keeping Python's lock, so it may read NumPy arrays in place.
+///
+/// For short calls (one pass over the elements), where copying the inputs would cost as much as the work.
+pub fn run_in_place<T, F>(py: Python<'_>, work: F) -> PyResult<T>
+where
+    F: FnOnce() -> Result<T, michell::EngineError>,
+{
+    let outcome = catch_unwind(AssertUnwindSafe(work));
+    finish(py, outcome)
+}
+
+/// Turns the outcome of an engine call into a Python result. A panic inside the call is a bug in michell:
+/// it is reported as `internal_error` instead of crossing into Python.
+fn finish<T>(
+    py: Python<'_>,
+    outcome: std::thread::Result<Result<T, michell::EngineError>>,
+) -> PyResult<T> {
     match outcome {
         Ok(Ok(value)) => Ok(value),
         Ok(Err(error)) => Err(to_py_err(py, error)),

@@ -80,3 +80,10 @@ pub fn as_slice<'a>(
         .as_slice()
         .map_err(|_| invalid_input(py, format!("{name} must be contiguous in memory")))
 }
+
+/// Reads `value` like `read_vector` and copies its numbers into memory the engine owns: for a call that
+/// releases Python's lock, so that no other Python thread can change the input halfway.
+pub fn copy_vector(value: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f64>> {
+    let array = read_vector(value, name)?;
+    Ok(as_slice(value.py(), &array, name)?.to_vec())
+}

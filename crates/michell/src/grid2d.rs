@@ -89,6 +89,11 @@ impl Grid2d {
         self.t
     }
 
+    /// Volume of one element, h * h * t, in mm^3.
+    pub fn element_volume(&self) -> f64 {
+        self.h * self.h * self.t
+    }
+
     pub fn n_elements(&self) -> usize {
         self.nx * self.ny
     }

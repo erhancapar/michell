@@ -10,7 +10,7 @@ use crate::errors::{invalid_input, run_engine};
 ///
 /// Element (i, j) has index `i + nx * j`; node (i, j) has index `i + (nx + 1) * j`; node n has its x
 /// displacement at degree of freedom `2n` and its y displacement at `2n + 1`.
-#[pyclass(frozen, module = "michell", name = "Grid")]
+#[pyclass(frozen, subclass, module = "michell", name = "Grid")]
 pub struct Grid {
     pub inner: michell::Grid2d,
 }
@@ -66,6 +66,12 @@ impl Grid {
     #[getter]
     fn t(&self) -> f64 {
         self.inner.t()
+    }
+
+    /// Volume of one element, h * h * t, mm^3.
+    #[getter]
+    fn voxel_volume_mm3(&self) -> f64 {
+        self.inner.element_volume()
     }
 
     #[getter]

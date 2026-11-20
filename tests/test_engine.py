@@ -34,8 +34,11 @@ def test_engine_version_is_the_rust_crate_version():
 
 
 def test_user_code_sees_the_engine_through_the_package():
-    assert michell.Grid is _engine.Grid
-    assert michell.Elasticity is _engine.Elasticity
+    # Grid and Elasticity are subclasses that also accept boolean masks; the work is the engine's.
+    assert issubclass(michell.Grid, _engine.Grid)
+    assert issubclass(michell.Elasticity, _engine.Elasticity)
+    assert issubclass(michell.DensityFilter, _engine.DensityFilter)
+    assert michell.Oc is _engine.Oc
     assert michell.EngineError is _engine.EngineError
     assert issubclass(michell.EngineError, Exception)
 

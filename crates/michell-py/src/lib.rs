@@ -5,12 +5,16 @@
 //! - `errors`: `michell.EngineError` and the safe way to run an engine call;
 //! - `arrays`: reading NumPy arrays by the boundary rules;
 //! - `grid`: `michell.Grid`;
-//! - `elasticity`: `michell.Elasticity` and `michell.element_stiffness`.
+//! - `elasticity`: `michell.Elasticity` and `michell.element_stiffness`;
+//! - `filter`: `michell.DensityFilter`;
+//! - `oc`: `michell.Oc`, the optimality-criteria update.
 
 mod arrays;
 mod elasticity;
 mod errors;
+mod filter;
 mod grid;
+mod oc;
 
 use pyo3::pymodule;
 
@@ -24,7 +28,11 @@ mod _engine {
     #[pymodule_export]
     use super::errors::EngineError;
     #[pymodule_export]
+    use super::filter::DensityFilter;
+    #[pymodule_export]
     use super::grid::Grid;
+    #[pymodule_export]
+    use super::oc::Oc;
 
     /// Return the version of the Rust engine crate.
     #[pyfunction]

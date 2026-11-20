@@ -1,7 +1,7 @@
 # Modules: how goals, limits and shape rules plug in
 
-Status: design note. The interface is not implemented yet; the first two modules (compliance and mass) arrive
-with the 2D optimisation loop, and this note changes if they show it is wrong.
+Status: design note, kept in step with the code. The interface, the `Compliance` and `Mass` responses and the
+2D optimisation loop exist.
 
 ## The picture
 
@@ -46,7 +46,7 @@ class Response(Protocol):
 | `ev.cases` | the load cases, with their weights |
 | `ev.state(physics, case)` | the solved state, one float per degree of freedom |
 | `ev.loads(physics, case)` | the load vector of that case |
-| `ev.engine` | heavy helpers that run in Rust (element strain energy, element stress, ...) |
+| `ev.engine` | heavy helpers that run in Rust (element strain energy, element stress, ...); with one physics, this is the elasticity model |
 
 `Partials` is what the author writes down by hand, and it is all local:
 
@@ -86,12 +86,13 @@ are built into the engine; a manufacturing rule such as "no overhang steeper tha
 class Mass:
     name, unit, reads = "mass", "g", ()
 
-    def value(self, ev):
-        return ev.material.density_g_mm3 * ev.grid.voxel_volume_mm3 * ev.density.sum()
+    def value(self, ev):                            # inactive elements carry no mass
+        per_element = ev.material.density_g_mm3 * ev.grid.voxel_volume_mm3
+        return per_element * (ev.grid.active * ev.density).sum()
 
     def partials(self, ev):
         per_element = ev.material.density_g_mm3 * ev.grid.voxel_volume_mm3
-        return Partials(d_density=np.full_like(ev.density, per_element), d_state={})
+        return Partials(d_density=per_element * ev.grid.active, d_state={})
 
 
 class Compliance:                                   # low compliance = high stiffness
@@ -106,6 +107,20 @@ class Compliance:                                   # low compliance = high stif
                         d_state={("elasticity", c.name): c.weight * ev.loads("elasticity", c.name)
                                  for c in ev.cases})
 ```
+
+## Goal, limits and the optimiser
+
+A problem has one goal and any number of limits. A limit is a response with a bound,
+`Limit(response, at_most)`, in the response's own unit. The loop hands the optimiser plain numbers and arrays:
+
+```python
+class Optimiser(Protocol):
+    def start(self, problem, x, limits, filters) -> None: ...            # once, before the first pass
+    def update(self, x, goal, d_goal, limits, d_limits) -> np.ndarray: ...   # the next design variables
+```
+
+Two optimisers implement it: the classic optimality-criteria update (one limit, kept to reproduce the published
+88-line result) and the method of moving asymptotes (any number of limits).
 
 ## What every module must bring, and what it gets for free
 

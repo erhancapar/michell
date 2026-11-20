@@ -1,0 +1,19 @@
+[package]
+name = "michell-py"
+description = "Python bindings for the michell engine (the michell._engine module)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "_engine"
+crate-type = ["cdylib"]
+
+[dependencies]
+michell.workspace = true
+# abi3-py310: one wheel per platform that works on every Python from 3.10 up.
+pyo3 = { workspace = true, features = ["abi3-py310"] }
+numpy.workspace = true

@@ -1,0 +1,20 @@
+# Rust build output
+/target/
+# Local Cargo settings (moves the target folder out of the synced project)
+/.cargo/config.toml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+# Compiled extension placed in the source tree by `maturin develop`
+python/michell/*.so
+python/michell/*.pyd
+
+# Local working notes for the next session (never public)
+/HANDOFF.md

@@ -10,8 +10,8 @@
 //! entries, so the nodes are shared out between threads without two threads writing the same entry.
 //!
 //! Threads: the object runs on the number of threads it was built with (`threads`). The product, the
-//! diagonal, the right-hand side, the per-element quantities and the solver's sums and vector updates all
-//! run on them, by the rules of `threads`: every node or element is computed by one thread with the same
+//! diagonal, the right-hand side, the per-element quantities, the solver's sums and vector updates and the
+//! multigrid V-cycle (all but its coarsest solve, which runs on one thread) run on them, by the rules of `threads`: every node or element is computed by one thread with the same
 //! arithmetic whichever thread it is, and every sum runs over fixed blocks. No result depends on the
 //! thread count.
 //!
@@ -20,17 +20,24 @@
 //! displacements to the right-hand side (b_free = f_free - K_free,held u_held), solves for the free
 //! degrees of freedom with the held ones at zero, and puts the held values back.
 //!
-//! Solver: conjugate gradients (`conjugate_gradient`) preconditioned by the inverse of the diagonal of K
-//! (Jacobi), stopped at the relative residual `tolerance` of the system for the free degrees of freedom.
-//! Whether the part is held against every rigid motion is not checked here: a part that is not held
-//! gives a singular K, on which the method usually fails with `solver_not_converged`, but a load that
-//! happens to be in balance on the loose part can still converge.
+//! Solver: conjugate gradients (`conjugate_gradient`) preconditioned by one multigrid V-cycle
+//! (`multigrid`), stopped at the relative residual `tolerance` of the system for the free degrees of
+//! freedom. The parts of the multigrid that do not depend on the density (the levels, and the set the
+//! coarsest solve leaves out) are built with the object; the coarse matrices are built at the start of
+//! every solve from that solve's density and dropped at its end, so no call depends on an earlier one.
+//!
+//! Is the part held? `new` checks that every body of face-joined active elements is held against all six
+//! rigid motions (`held_check`), and refuses one that is not with `singular_system`. Like in 2D this does
+//! not depend on the density: every active element keeps a modulus of at least E_min > 0.
 
 use crate::conjugate_gradient::{self, SolveReport};
 use crate::error::EngineError;
 use crate::grid3d::Grid3d;
+use crate::held_check::check_held;
 use crate::hex8;
 use crate::material::Material;
+use crate::multigrid::MultigridShape;
+use crate::multigrid_smoother::SmootherSettings;
 use crate::threads::Threads;
 
 /// Which columns of K a gather over a node's elements takes.
@@ -59,12 +66,19 @@ pub struct Elasticity3d {
     max_steps: usize,
     /// The threads every call runs on.
     threads: Threads,
+    /// The parts of the multigrid preconditioner that do not depend on the density.
+    multigrid: MultigridShape,
+    /// The damping and sweep count of the multigrid smoother.
+    smoother: SmootherSettings,
 }
 
 impl Elasticity3d {
     /// `held` has one entry per degree of freedom (3 per node: x, y, z); `true` holds it. `tolerance` is
     /// the relative residual at which a solve stops, `max_steps` the number of conjugate-gradient steps
     /// allowed, `threads` the number of threads every call runs on (at least 1).
+    ///
+    /// Gives `singular_system` if a body of face-joined active elements is not held against every rigid
+    /// motion (see `held_check`).
     pub fn new(
         grid: Grid3d,
         material: Material,
@@ -91,8 +105,10 @@ impl Elasticity3d {
                 }
             }
         }
-        let fixed = held.iter().zip(&orphan).map(|(h, o)| *h || *o).collect();
+        let fixed: Vec<bool> = held.iter().zip(&orphan).map(|(h, o)| *h || *o).collect();
+        check_held(&grid, &held)?;
         let k_unit = hex8::stiffness(1.0, material.poisson_ratio, grid.h());
+        let multigrid = MultigridShape::new(&grid, &fixed, &k_unit, &threads)?;
         Ok(Elasticity3d {
             grid,
             material,
@@ -102,7 +118,40 @@ impl Elasticity3d {
             tolerance,
             max_steps,
             threads,
+            multigrid,
+            smoother: SmootherSettings::default(),
         })
+    }
+
+    /// The same analysis with other smoother settings: `damping` (c in omega = c * 2 / L, strictly
+    /// between 0 and 1) and `sweeps` (1 to 3). For the study of the settings (`smoother_study`); the
+    /// analysis always uses those of `multigrid_smoother`.
+    #[cfg(test)]
+    pub(crate) fn with_smoother(
+        mut self,
+        damping: f64,
+        sweeps: usize,
+    ) -> Result<Elasticity3d, EngineError> {
+        if !(damping > 0.0 && damping < 1.0) || !(1..=3).contains(&sweeps) {
+            return Err(EngineError::invalid_input(
+                "the smoother needs a damping between 0 and 1 (both excluded) and 1 to 3 sweeps",
+            )
+            .with_number("damping", damping)
+            .with_integer("sweeps", sweeps));
+        }
+        self.smoother = SmootherSettings { damping, sweeps };
+        Ok(self)
+    }
+
+    /// The number of multigrid levels, the finest included (1: the grid is solved directly).
+    pub fn multigrid_levels(&self) -> usize {
+        self.multigrid.levels().len()
+    }
+
+    /// The number of degrees of freedom the coarsest multigrid solve leaves out (see
+    /// `multigrid_coarsest`).
+    pub fn multigrid_dropped(&self) -> usize {
+        self.multigrid.dropped_count()
     }
 
     pub fn grid(&self) -> &Grid3d {
@@ -298,11 +347,11 @@ impl Elasticity3d {
         });
     }
 
-    /// The inverse of the diagonal of K (1 on fixed degrees of freedom): the Jacobi preconditioner.
-    fn inverse_diagonal(&self, moduli: &[f64]) -> Vec<f64> {
-        let mut inverse = vec![1.0; self.grid.n_dofs()];
+    /// The diagonal of K (1 on fixed degrees of freedom), for the smoother of the finest level.
+    fn diagonal(&self, moduli: &[f64]) -> Vec<f64> {
+        let mut diagonal_values = vec![1.0; self.grid.n_dofs()];
         self.threads
-            .for_each_piece(&mut inverse, 3, |node, values| {
+            .for_each_piece(&mut diagonal_values, 3, |node, values| {
                 for (c, value) in values.iter_mut().enumerate() {
                     if self.fixed[3 * node + c] {
                         continue;
@@ -315,14 +364,15 @@ impl Elasticity3d {
                     }
                     // A free degree of freedom touches at least one active element, whose modulus is at
                     // least E_min > 0, so the diagonal is positive.
-                    *value = 1.0 / diagonal;
+                    *value = diagonal;
                 }
             });
-        inverse
+        diagonal_values
     }
 
     /// Moves the held displacements to the right-hand side, solves for the free degrees of freedom by
-    /// conjugate gradients and puts the held values back.
+    /// conjugate gradients preconditioned by the multigrid built for this density, and puts the held
+    /// values back.
     fn solve_system(
         &self,
         rho: &[f64],
@@ -375,19 +425,29 @@ impl Elasticity3d {
             }
         }
 
-        let inverse_diagonal = self.inverse_diagonal(&moduli);
-        let report = conjugate_gradient::solve(
+        let diagonal = self.diagonal(&moduli);
+        let multigrid = self.multigrid.build(
+            &moduli,
+            &self.k_unit,
+            &diagonal,
+            self.smoother,
             &self.threads,
-            |p, q| self.multiply(&moduli, p, q),
+        )?;
+        let fine_product = |p: &[f64], q: &mut [f64]| self.multiply(&moduli, p, q);
+        let mut cycles = 0;
+        let mut report = conjugate_gradient::solve(
+            &self.threads,
+            fine_product,
             |r, z| {
-                self.threads
-                    .update(z, |dof, z_dof| *z_dof = inverse_diagonal[dof] * r[dof]);
+                cycles += 1;
+                multigrid.apply(&fine_product, r, z);
             },
             &b,
             &mut x,
             self.tolerance,
             self.max_steps,
         )?;
+        report.products += cycles * multigrid.fine_products_per_cycle();
         for dof in 0..n_dofs {
             if self.fixed[dof] {
                 x[dof] = held[dof];
@@ -450,6 +510,7 @@ impl Elasticity3d {
 mod tests {
     use super::*;
     use crate::error::ErrorCode;
+    use crate::multigrid_smoother::SWEEPS;
 
     fn unit_material() -> Material {
         Material {
@@ -584,21 +645,132 @@ mod tests {
 
     #[test]
     fn an_exact_start_takes_no_step_and_too_few_steps_fail() {
-        let grid = Grid3d::full(4, 2, 2, 1.0).unwrap();
+        // 12 x 6 x 6 elements (1911 degrees of freedom): one level, the preconditioner is the direct
+        // solve and one step reaches the solution.
+        let grid = Grid3d::full(12, 6, 6, 1.0).unwrap();
         let held = clamped_left(&grid);
-        let model =
-            Elasticity3d::new(grid.clone(), unit_material(), held.clone(), 1e-8, 500, 1).unwrap();
-        let rho = vec![1.0; 16];
+        let model = Elasticity3d::new(grid.clone(), unit_material(), held, 1e-8, 500, 1).unwrap();
+        assert_eq!(model.multigrid_levels(), 1);
+        let rho = vec![1.0; grid.n_elements()];
         let mut loads = vec![0.0; grid.n_dofs()];
-        loads[3 * grid.node_index(4, 1, 1) + 1] = 1.0;
+        loads[3 * grid.node_index(12, 3, 3) + 1] = 1.0;
         let (u, report) = model.solve(&rho, &loads, None, None).unwrap();
-        assert!(report.steps > 1);
+        assert_eq!((report.steps, report.products), (1, 2));
         let (_, again) = model.solve(&rho, &loads, None, Some(&u)).unwrap();
         assert_eq!(again.steps, 0);
 
+        // 18 x 8 x 8 (4617 degrees of freedom): two levels, one V-cycle per step with SWEEPS sweeps
+        // before and after (2 SWEEPS fine products) besides the step's own product.
+        let grid = Grid3d::full(18, 8, 8, 1.0).unwrap();
+        let held = clamped_left(&grid);
+        let rho = vec![1.0; grid.n_elements()];
+        let mut loads = vec![0.0; grid.n_dofs()];
+        loads[3 * grid.node_index(18, 4, 4) + 1] = 1.0;
+        let model =
+            Elasticity3d::new(grid.clone(), unit_material(), held.clone(), 1e-8, 500, 1).unwrap();
+        assert_eq!(model.multigrid_levels(), 2);
+        let (_, report) = model.solve(&rho, &loads, None, None).unwrap();
+        assert!(report.steps > 1);
+        assert_eq!(report.products, 1 + report.steps * (1 + 2 * SWEEPS));
         let short = Elasticity3d::new(grid, unit_material(), held, 1e-8, 2, 1).unwrap();
         let error = short.solve(&rho, &loads, None, None).unwrap_err();
         assert_eq!(error.code, ErrorCode::SolverNotConverged);
+    }
+
+    /// The V-cycle of `model` for `rho`, applied to `r`.
+    fn v_cycle(model: &Elasticity3d, rho: &[f64], r: &[f64]) -> Vec<f64> {
+        let moduli = model.moduli(rho);
+        let diagonal = model.diagonal(&moduli);
+        let multigrid = model
+            .multigrid
+            .build(
+                &moduli,
+                &model.k_unit,
+                &diagonal,
+                model.smoother,
+                &model.threads,
+            )
+            .unwrap();
+        let fine_product = |p: &[f64], q: &mut [f64]| model.multiply(&moduli, p, q);
+        let mut z = vec![0.0; r.len()];
+        multigrid.apply(&fine_product, r, &mut z);
+        z
+    }
+
+    #[test]
+    fn the_v_cycle_is_symmetric_positive_and_leaves_fixed_entries_at_zero() {
+        // 19 x 9 x 7 elements (odd counts: coarse nodes outside the fine grid at the far edges), an
+        // inactive block, a support patch that ends one node short of the odd edge y = 9, and a 0-and-1
+        // design of contrast 1e9.
+        let (nx, ny, nz) = (19, 9, 7);
+        let mut active = vec![true; nx * ny * nz];
+        for k in 4..nz {
+            for j in 0..ny {
+                for i in 12..nx {
+                    active[i + nx * (j + ny * k)] = false;
+                }
+            }
+        }
+        let grid = Grid3d::new(nx, ny, nz, 1.0, active).unwrap();
+        let mut held = vec![false; grid.n_dofs()];
+        for k in 0..=nz {
+            for j in 0..ny {
+                let node = grid.node_index(0, j, k);
+                held[3 * node..3 * node + 3].fill(true);
+            }
+        }
+        let rho: Vec<f64> = (0..grid.n_elements())
+            .map(|e| {
+                let (i, j, k) = grid.element_position(e);
+                if i < 2 || (j + k) % 4 < 2 || i % 5 == 0 {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let model =
+            Elasticity3d::new(grid.clone(), unit_material(), held.clone(), 1e-8, 500, 1).unwrap();
+        assert!(model.multigrid_levels() >= 2);
+        let fixed = model.fixed.clone();
+        let vector = |seed: f64| -> Vec<f64> {
+            (0..grid.n_dofs())
+                .map(|d| {
+                    if fixed[d] {
+                        0.0
+                    } else {
+                        (seed * d as f64).sin()
+                    }
+                })
+                .collect()
+        };
+        let (a, b) = (vector(0.37), vector(1.13));
+        let (ma, mb) = (v_cycle(&model, &rho, &a), v_cycle(&model, &rho, &b));
+        let dot = |x: &[f64], y: &[f64]| -> f64 { x.iter().zip(y).map(|(p, q)| p * q).sum() };
+        let (amb, bma) = (dot(&a, &mb), dot(&b, &ma));
+        assert!(
+            (amb - bma).abs() < 1e-10 * amb.abs().max(bma.abs()),
+            "{amb} {bma}"
+        );
+        assert!(dot(&a, &ma) > 0.0 && dot(&b, &mb) > 0.0);
+        assert!(fixed.iter().zip(&ma).all(|(f, v)| !*f || *v == 0.0));
+        // The same numbers on 5 threads.
+        let threaded = Elasticity3d::new(grid, unit_material(), held, 1e-8, 500, 5).unwrap();
+        let threaded_ma = v_cycle(&threaded, &rho, &a);
+        assert!(
+            threaded_ma
+                .iter()
+                .zip(&ma)
+                .all(|(p, q)| p.to_bits() == q.to_bits())
+        );
+    }
+
+    #[test]
+    fn a_part_that_is_not_held_is_refused_when_built() {
+        let grid = Grid3d::full(4, 2, 2, 1.0).unwrap();
+        let free = vec![false; grid.n_dofs()];
+        let error = Elasticity3d::new(grid, unit_material(), free, 1e-8, 10, 1).unwrap_err();
+        assert_eq!(error.code, ErrorCode::SingularSystem);
     }
 
     #[test]
@@ -658,14 +830,14 @@ mod tests {
                 grid.clone(),
                 unit_material(),
                 held.clone(),
-                0.5,
+                1e-3,
                 500,
                 threads,
             )
             .unwrap();
             let product = model.product(&rho, &x).unwrap();
             // A solve stopped at a loose tolerance: a few steps, so that the test stays short in a
-            // debug build, but every step's sums, updates and products run on the threads.
+            // debug build, but every step's sums, updates, products and V-cycles run on the threads.
             let (u, report) = model.solve(&rho, &loads, Some(&values), None).unwrap();
             let stress = model.element_stress(&rho, &u).unwrap();
             let sensitivity = model.sensitivity(&rho, &u, &x).unwrap();

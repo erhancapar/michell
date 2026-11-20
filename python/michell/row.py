@@ -16,6 +16,7 @@ REFERENCE_CODE = "reference code"
 PUBLISHED_OPTIMUM = "published optimum"
 INDEPENDENT_COMPUTATION = "independent computation"
 REPEATABILITY = "repeatability"
+CONVERGENCE = "convergence"
 
 
 @dataclass(frozen=True)

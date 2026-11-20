@@ -8,7 +8,9 @@ all and writes the table.
 Rows 6, 8 and 10 compare with the output of the 88-line code kept in the repository under
 ``tests/reference``; they take that folder as an argument and report "not run" when it is absent. Row 9
 solves its problems a second time with SciPy and row 14 assembles the 3D stiffness matrix with SciPy; both
-report "not run" when SciPy is not installed. Row 15 runs the 3D analysis on several thread counts.
+report "not run" when SciPy is not installed. Row 15 runs the 3D analysis on several thread counts. Row 16
+compares the 3D solver with a sparse direct solution computed by SciPy (also "not run" without it), row 17
+counts its steps, and row 18 compares a 3D cantilever with beam theory.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from pathlib import Path
 
 from michell.row import (
     CLOSED_FORM,
+    CONVERGENCE,
     GRADIENT,
     INDEPENDENT_COMPUTATION,
     PUBLISHED_OPTIMUM,
@@ -40,12 +43,19 @@ from michell.verification.analysis_rows import (
     row_6_first_pass,
 )
 from michell.verification.mbb import MBB_CASES
+from michell.verification.solver3d_rows import (
+    ROW_16_CASES,
+    row_16_direct_solve,
+    row_17_design,
+    row_17_uniform,
+    row_18_cantilever,
+)
 from michell.verification.mma_rows import row_9_published_optima, row_10_mbb_with_mma
 from michell.verification.optimisation_rows import row_7_gradients, row_8_mbb_with_oc
 
 
 def all_rows(reference: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 15 in order. ``reference`` is the folder that holds ``top88/`` (in the repository:
+    """Runs rows 1 to 18 in order. ``reference`` is the folder that holds ``top88/`` (in the repository:
     ``tests/reference``)."""
     rows = []
     rows += row_1_element_matrix()
@@ -64,17 +74,25 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_13_pure_shear()
     rows += row_14_product()
     rows += row_15_thread_count()
+    for case in ROW_16_CASES:
+        rows += row_16_direct_solve(case)
+    rows += row_17_uniform()
+    rows += row_17_design("lattice")
+    rows += row_17_design("irregular")
+    rows += row_18_cantilever()
     return rows
 
 
 __all__ = [
     "CLOSED_FORM",
+    "CONVERGENCE",
     "GRADIENT",
     "INDEPENDENT_COMPUTATION",
     "MBB_CASES",
     "PUBLISHED_OPTIMUM",
     "REFERENCE_CODE",
     "REPEATABILITY",
+    "ROW_16_CASES",
     "Row",
     "all_rows",
     "row_1_element_matrix",
@@ -92,4 +110,8 @@ __all__ = [
     "row_13_pure_shear",
     "row_14_product",
     "row_15_thread_count",
+    "row_16_direct_solve",
+    "row_17_uniform",
+    "row_17_design",
+    "row_18_cantilever",
 ]

@@ -12,8 +12,9 @@ use crate::grid::non_negative;
 use crate::grid3d::Grid3d;
 
 /// Linear elasticity on one 3D grid with one set of held degrees of freedom, solved by conjugate
-/// gradients with a diagonal (Jacobi) preconditioner on a stiffness matrix that is never assembled.
-/// Every call runs on `threads` threads.
+/// gradients preconditioned by one multigrid V-cycle, on a stiffness matrix that is never assembled.
+/// Every call runs on `threads` threads. Building it refuses a part that is not held
+/// (`singular_system`).
 ///
 /// Material law: E(rho) = e_min + rho^penalty (youngs_modulus - e_min), isotropic.
 #[pyclass(frozen, subclass, module = "michell", name = "Elasticity3d")]
@@ -143,8 +144,9 @@ impl Elasticity3d {
         self.run_solve(py, || self.inner.adjoint(&rho, &rhs, start.as_deref()))
     }
 
-    /// How the last `solve` or `adjoint` on this object ended: a dict with `steps` and
-    /// `relative_residual`, or None before the first one and after one that raised an error.
+    /// How the last `solve` or `adjoint` on this object ended: a dict with `steps`,
+    /// `relative_residual` and `products` (the products with the fine stiffness matrix, those of the
+    /// multigrid smoother included), or None before the first one and after one that raised an error.
     fn last_solve_report<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
         let last = *self
             .last_report
@@ -156,6 +158,7 @@ impl Elasticity3d {
                 let dict = PyDict::new(py);
                 dict.set_item("steps", report.steps)?;
                 dict.set_item("relative_residual", report.relative_residual)?;
+                dict.set_item("products", report.products)?;
                 Ok(Some(dict))
             }
         }
@@ -241,6 +244,19 @@ impl Elasticity3d {
     #[getter]
     fn threads(&self) -> usize {
         self.inner.threads()
+    }
+
+    /// The number of multigrid levels, the finest included (1: the grid is solved directly).
+    #[getter]
+    fn multigrid_levels(&self) -> usize {
+        self.inner.multigrid_levels()
+    }
+
+    /// The number of degrees of freedom of the coarsest multigrid level that its direct solve leaves out:
+    /// those that depend on others because the interpolation maps a combination of them to zero.
+    #[getter]
+    fn multigrid_dropped(&self) -> usize {
+        self.inner.multigrid_dropped()
     }
 
     /// The grid this model was built on (a new handle with the same contents).

@@ -2,8 +2,8 @@
 //!
 //! The matrix and the preconditioner are not stored here: the caller passes two functions, one that
 //! computes the product `A p` and one that applies the preconditioner `M^-1 r`. The 3D analysis passes
-//! its matrix-free product and the inverse of the diagonal of K (Jacobi); any symmetric positive definite
-//! preconditioner fits the same place, such as one multigrid V-cycle.
+//! its matrix-free product and one multigrid V-cycle (`multigrid`); any symmetric positive definite
+//! preconditioner fits the same place.
 //!
 //! The method as in Saad, "Iterative Methods for Sparse Linear Systems", 2nd ed. (2003), algorithm 9.1
 //! (preconditioned conjugate gradient), and Shewchuk, "An Introduction to the Conjugate Gradient Method
@@ -18,11 +18,14 @@
 use crate::error::{EngineError, ErrorCode};
 use crate::threads::Threads;
 
-/// How a solve ended: the number of steps taken and the relative residual |b - A x| / |b| reached.
+/// How a solve ended: the number of steps taken, the relative residual |b - A x| / |b| reached, and the
+/// number of products with the matrix A. `solve` counts its own products (one per step and one for the
+/// first residual); a caller whose preconditioner also multiplies by A adds those.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SolveReport {
     pub steps: usize,
     pub relative_residual: f64,
+    pub products: usize,
 }
 
 /// Refuses a tolerance that is not a number between 0 and 1 (both excluded).
@@ -67,6 +70,7 @@ pub fn solve(
         return Ok(SolveReport {
             steps: 0,
             relative_residual: 0.0,
+            products: 0,
         });
     }
 
@@ -80,6 +84,7 @@ pub fn solve(
         return Ok(SolveReport {
             steps: 0,
             relative_residual,
+            products: 1,
         });
     }
 
@@ -118,6 +123,7 @@ pub fn solve(
             return Ok(SolveReport {
                 steps: step,
                 relative_residual,
+                products: step + 1,
             });
         }
         // New search direction p = z + beta p, beta = (r_new . z_new) / (r . z).

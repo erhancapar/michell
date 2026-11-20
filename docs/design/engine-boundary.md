@@ -2,8 +2,9 @@
 
 Status: design note, kept in step with the code. The 2D analysis, the density filter, the OC update, the
 MMA update and `dot` exist. The 3D analysis exists (`Grid3d`, `Elasticity3d`) and runs on as many threads as
-it is given: its solver is conjugate gradients with a diagonal preconditioner, and it makes no check that a
-part is held (see "Errors"). The rest of the table below is planned.
+it is given: its solver is conjugate gradients preconditioned by one multigrid V-cycle (Galerkin coarse
+matrices, damped Jacobi smoothing, a direct solve on the coarsest level), and it checks when it is built that
+the part is held (see "Errors"). The rest of the table below is planned.
 
 ## The rule
 
@@ -100,9 +101,15 @@ compares the numbers of runs on several thread counts.
 The engine returns errors as values. The bindings turn them into `michell.EngineError` with three fields: a
 stable `code` (for programs and agents), a `message` (for people), and `details` (the numbers involved).
 Examples: `invalid_input` for a wrong array or setting; `singular_system` when a part is not held (found when
-the 2D `Elasticity` object is built, because it does not depend on the density; `Elasticity3d` makes no such
-check, and a part that is not held usually ends in `solver_not_converged`); `solver_not_converged` with the
-residual and step count (the MMA subproblem; the iterative solver in 3D).
+the analysis object is built, because it does not depend on the density: in 2D by factoring the stiffness
+matrix with every active element at the same modulus; in 3D by checking, for every body of active elements
+joined through shared faces, that its held degrees of freedom stop all six rigid motions, with the size of the
+body and one of its elements in the details; the 3D solve itself can also raise it, if the direct solve on the
+coarsest multigrid level meets a pivot that is not positive for the density of that call); `solver_not_converged` with the residual and step count (the
+MMA subproblem; the iterative solver in 3D).
+The 3D check is stricter than the mathematics in one rare case: elements that meet only along an edge or at a
+corner count as separate bodies, so a body restrained only through such a hinge to another, held body is
+refused, although the hinge stops some of its motions.
 A Rust panic is a bug in michell: it is caught at the boundary and reported as `internal_error`, and it never
 brings down the Python process.
 

@@ -48,14 +48,17 @@ def test_grid_numbering_runs_x_then_y_then_z():
 
 
 def test_solve_reports_its_steps_and_a_start_at_the_solution_takes_none():
-    grid, model = clamped_block(tolerance=1e-10)
-    assert (model.tolerance, model.max_steps) == (1e-10, 500)
+    # 16 x 8 x 8 elements: two multigrid levels.
+    grid, model = clamped_block(16, 8, 8, tolerance=1e-10)
+    assert (model.tolerance, model.max_steps, model.multigrid_levels) == (1e-10, 500, 2)
     assert model.last_solve_report() is None
     rho = np.ones(grid.n_elements)
     loads = tip_load(grid)
     u = model.solve(rho, loads)
     report = model.last_solve_report()
     assert report["steps"] > 1 and report["relative_residual"] <= 1e-10
+    # Each step: its own product and one V-cycle with one smoothing sweep before and after.
+    assert report["products"] == 1 + 3 * report["steps"]
     model.solve(rho, loads, start=u)
     assert model.last_solve_report()["steps"] == 0
     # The adjoint of the compliance is the displacement itself.
@@ -63,8 +66,15 @@ def test_solve_reports_its_steps_and_a_start_at_the_solution_takes_none():
     assert np.allclose(lam, u, rtol=0, atol=1e-9 * np.abs(u).max())
 
 
+def test_a_grid_that_is_its_own_coarsest_level_is_solved_in_one_step():
+    grid, model = clamped_block(tolerance=1e-10)
+    assert model.multigrid_levels == 1
+    model.solve(np.ones(grid.n_elements), tip_load(grid))
+    assert model.last_solve_report()["steps"] == 1
+
+
 def test_too_few_steps_raise_solver_not_converged_with_the_numbers():
-    grid, model = clamped_block(tolerance=1e-10, max_steps=3)
+    grid, model = clamped_block(16, 8, 8, tolerance=1e-10, max_steps=3)
     rho = np.ones(grid.n_elements)
     with pytest.raises(michell.EngineError) as error:
         model.solve(rho, tip_load(grid))
@@ -134,3 +144,68 @@ def test_element_stiffness_3d_is_24_by_24_and_symmetric():
     assert np.allclose(k, k.T, rtol=0, atol=1e-15)
     with pytest.raises(michell.EngineError):
         michell.element_stiffness_3d(1.0, 0.5, 1.0)
+
+
+def held_model(grid, held):
+    return michell.Elasticity3d(grid, held, youngs_modulus=1.0, poisson_ratio=0.3, e_min=1e-9, penalty=3.0)
+
+
+def held_face(grid):
+    held = np.zeros(grid.n_dofs, dtype=bool)
+    for k in range(grid.nz + 1):
+        for j in range(grid.ny + 1):
+            node = grid.node(0, j, k)
+            held[3 * node : 3 * node + 3] = True
+    return held
+
+
+def assert_not_held(grid, held, elements=None):
+    with pytest.raises(michell.EngineError) as error:
+        held_model(grid, held)
+    assert error.value.code == "singular_system"
+    if elements is not None:
+        assert error.value.details["elements"] == elements
+
+
+def test_a_part_without_support_or_held_at_one_node_is_refused():
+    grid = michell.Grid3d(6, 3, 3, 1.0)
+    assert_not_held(grid, np.zeros(grid.n_dofs, dtype=bool), elements=54)
+    one = np.zeros(grid.n_dofs, dtype=bool)
+    node = grid.node(0, 1, 1)
+    one[3 * node : 3 * node + 3] = True
+    assert_not_held(grid, one)
+
+
+def test_a_loose_second_body_and_a_block_joined_along_an_edge_are_refused():
+    # 8 x 3 x 3: a clamped bar in the elements i < 4, and a loose 2 x 3 x 3 block at i >= 6.
+    active = np.zeros((3, 3, 8), dtype=bool)  # [k, j, i]
+    active[:, :, :4] = True
+    active[:, :, 6:] = True
+    grid = michell.Grid3d(8, 3, 3, 1.0, active=active.ravel())
+    assert_not_held(grid, held_face(grid), elements=18)
+    # A 2 x 3 x 3 bar clamped at x = 0 and one more element at (2, 3, 3) of a 3 x 4 x 4 grid, touching the
+    # bar only along the edge x = 2, y = 3, z = 3.
+    active = np.zeros((4, 4, 3), dtype=bool)
+    active[:3, :3, :2] = True
+    active[3, 3, 2] = True
+    grid = michell.Grid3d(3, 4, 4, 1.0, active=active.ravel())
+    assert_not_held(grid, held_face(grid), elements=1)
+    # Joined through a face instead, the same block is held.
+    active[3, 3, 2] = False
+    active[2, 2, 2] = True
+    held_model(michell.Grid3d(3, 4, 4, 1.0, active=active.ravel()), held_face(grid))
+
+
+def test_a_thin_plate_builds_its_levels_and_solves():
+    # 64 x 64 x 2: the depth stops halving at one element while the plane goes on (three levels).
+    grid = michell.Grid3d(64, 64, 2, 1.0)
+    model = michell.Elasticity3d(
+        grid, held_face(grid), youngs_modulus=1.0, poisson_ratio=0.3, e_min=1e-9, penalty=3.0,
+        tolerance=1e-8, threads=4,
+    )  # fmt: skip
+    assert model.multigrid_levels == 3
+    loads = np.zeros(grid.n_dofs)
+    loads[3 * grid.node(64, 32, 2) + 2] = -1.0
+    model.solve(np.ones(grid.n_elements), loads)
+    report = model.last_solve_report()
+    assert report["relative_residual"] <= 1e-8 and report["steps"] < 100

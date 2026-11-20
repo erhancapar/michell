@@ -116,6 +116,89 @@ impl BandedMatrix {
         Ok(())
     }
 
+    /// Factors a matrix that may be positive semi-definite: like `factor`, but a row whose pivot is not
+    /// above `min_pivot_ratio` times its original diagonal does not stop the factorisation. That row and
+    /// its column are taken out instead (its row of L becomes 0 with a 1 on the diagonal, and every later
+    /// row gets a 0 in its column), as if the matrix had had a zero row and column there and a 1 on the
+    /// diagonal. Returns the rows taken out, in increasing order.
+    ///
+    /// Why this is exact: in a positive semi-definite matrix, a zero pivot means that the whole column
+    /// below it is zero in the matrix still to be factored, so nothing is lost by taking it out. The
+    /// factor then solves the system on the remaining rows; `solve_factored` returns for a row taken out
+    /// whatever its right-hand side held, so the caller sets those entries to 0.
+    pub fn factor_recording_zero_pivots(&mut self, min_pivot_ratio: f64) -> Vec<usize> {
+        let mut dropped = vec![false; self.n];
+        // With `record` set the factorisation never fails.
+        let _ = self.factor_dropping(min_pivot_ratio, &mut dropped, true);
+        (0..self.n).filter(|&row| dropped[row]).collect()
+    }
+
+    /// Factors the matrix with the rows and columns marked in `dropped` taken out (a 1 on the diagonal,
+    /// as `factor_recording_zero_pivots` leaves them). Every other pivot must be above `min_pivot_ratio`
+    /// times its original diagonal; the first that is not stops the factorisation with `ZeroPivot`.
+    pub fn factor_without(
+        &mut self,
+        dropped: &[bool],
+        min_pivot_ratio: f64,
+    ) -> Result<(), ZeroPivot> {
+        assert_eq!(dropped.len(), self.n, "one entry per row");
+        let mut dropped = dropped.to_vec();
+        self.factor_dropping(min_pivot_ratio, &mut dropped, false)
+    }
+
+    /// The factorisation of `factor`, with rows taken out: those already marked in `dropped`, and, when
+    /// `record` is set, every row whose pivot is too small (it is then marked).
+    fn factor_dropping(
+        &mut self,
+        min_pivot_ratio: f64,
+        dropped: &mut [bool],
+        record: bool,
+    ) -> Result<(), ZeroPivot> {
+        for i in 0..self.n {
+            let first = i.saturating_sub(self.half_band);
+            let diagonal = self.get(i, i);
+            for j in first..=i {
+                let value = if dropped[i] || dropped[j] {
+                    // A row or column taken out: 0 off the diagonal, 1 on it.
+                    if j == i { 1.0 } else { 0.0 }
+                } else {
+                    let dot: f64 = self
+                        .row_part(i, first, j)
+                        .iter()
+                        .zip(self.row_part(j, first, j))
+                        .map(|(a, b)| a * b)
+                        .sum();
+                    let s = self.get(i, j) - dot;
+                    if j < i {
+                        s / self.get(j, j)
+                    } else {
+                        let trusted = s > min_pivot_ratio * diagonal && diagonal > 0.0;
+                        if trusted {
+                            s.sqrt()
+                        } else if record {
+                            // Take row i out: clear what was written of it and put 1 on the diagonal.
+                            dropped[i] = true;
+                            for k in first..i {
+                                let at = self.position(i, k);
+                                self.values[at] = 0.0;
+                            }
+                            1.0
+                        } else {
+                            return Err(ZeroPivot {
+                                row: i,
+                                pivot: s,
+                                diagonal,
+                            });
+                        }
+                    }
+                };
+                let at = self.position(i, j);
+                self.values[at] = value;
+            }
+        }
+        Ok(())
+    }
+
     /// Solves A x = rhs in place, after `factor`: first L y = rhs (forward), then L^T x = y (backward).
     pub fn solve_factored(&self, rhs: &mut [f64]) {
         assert_eq!(rhs.len(), self.n, "right-hand side of the wrong length");
@@ -206,6 +289,56 @@ mod tests {
         for (xi, ti) in x.iter().zip(&x_true) {
             assert!((xi - ti).abs() < 1e-12);
         }
+    }
+
+    #[test]
+    fn a_dependent_row_is_recorded_and_taken_out() {
+        // A = P^T B P with B a fixed chain of 4 nodes and P mapping 5 unknowns onto them, the last
+        // unknown copying the third (x_4 adds to node 2): A is positive semi-definite of rank 4, and
+        // row 4 depends on row 2.
+        let b = spring_chain(4, true);
+        let p = |x: &[f64]| [x[0], x[1], x[2] + x[4], x[3]];
+        let n = 5;
+        let mut a = BandedMatrix::zeros(n, 2);
+        for i in 0..n {
+            for j in 0..=i {
+                if i - j > 2 {
+                    continue;
+                }
+                let (mut ei, mut ej) = (vec![0.0; n], vec![0.0; n]);
+                ei[i] = 1.0;
+                ej[j] = 1.0;
+                let (pi, pj) = (p(&ei), p(&ej));
+                let mut value = 0.0;
+                for (r, pi_r) in pi.iter().enumerate() {
+                    for (c, pj_c) in pj.iter().enumerate() {
+                        if r.abs_diff(c) <= 1 {
+                            value += pi_r * b.get(r, c) * pj_c;
+                        }
+                    }
+                }
+                a.add(i, j, value);
+            }
+        }
+        let original = a.clone();
+        let mut given = a.clone();
+        let dropped = a.factor_recording_zero_pivots(1e-10);
+        assert_eq!(dropped, vec![4]);
+        // The system on the first four unknowns is the chain itself: a pull of 1 on node 3 gives
+        // x = 1, 2, 3, 4 there; the row taken out returns its right-hand side, here 0.
+        let mut x = vec![0.0, 0.0, 0.0, 1.0, 0.0];
+        a.solve_factored(&mut x);
+        for (i, expected) in [1.0, 2.0, 3.0, 4.0, 0.0].iter().enumerate() {
+            assert!((x[i] - expected).abs() < 1e-12, "{i}");
+        }
+        // Factoring with that row given gives the same factor; without it, the pivot of row 4 fails.
+        given
+            .factor_without(&[false, false, false, false, true], 0.0)
+            .unwrap();
+        assert_eq!(given.values, a.values);
+        let mut plain = original.clone();
+        let failure = plain.factor_without(&[false; 5], 1e-10).unwrap_err();
+        assert_eq!(failure.row, 4);
     }
 
     #[test]

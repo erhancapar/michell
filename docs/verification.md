@@ -1,11 +1,12 @@
 # Verification
 
 This table checks the 2D and the 3D analysis and the 2D optimisation against closed-form solutions, against
-an exact integration and an independent assembly of the 3D stiffness matrix, against central finite
-differences, against the published 88-line topology optimisation code (Andreassen et al., Struct. Multidisc.
-Optim. 43, 2011, run in GNU Octave; see `tests/reference/top88/PROVENANCE.txt`) and against published optima
-(Svanberg, Int. J. Numer. Meth. Eng. 24, 1987); it also runs the 3D analysis on several thread counts and
-twice in a row and compares the numbers. The measure, the set-up and the limit of every row were fixed before
+an exact integration and an independent assembly of the 3D stiffness matrix, against a sparse direct solution
+of the 3D system, against central finite differences, against the published 88-line topology optimisation code
+(Andreassen et al., Struct. Multidisc. Optim. 43, 2011, run in GNU Octave; see
+`tests/reference/top88/PROVENANCE.txt`) and against published optima (Svanberg, Int. J. Numer. Meth. Eng. 24,
+1987); it also runs the 3D analysis on several thread counts and twice in a row and compares the numbers, and
+counts the steps the 3D solver takes. The measure, the set-up and the limit of every row were fixed before
 its first result was computed; a limit is never changed to make a row pass. Every limit is an upper bound on
 the measured value. Measured values are rounded to three significant digits; values at the level of
 floating-point round-off may differ in those digits from one machine to another. The code of every row, with
@@ -38,14 +39,22 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 11 | 3D element stiffness matrix against an exact integration of the shape functions | closed form | 3.93e-16 | ≤ 1e-12 | pass | largest entry difference relative to the largest entry, worst of 3 sets of modulus, Poisson ratio and side |
 | 11 | 3D element stiffness matrix is symmetric | closed form | 5.9e-17 | ≤ 1e-14 | pass | largest difference between K and its transpose relative to the largest entry, worst of 3 sets of modulus, Poisson ratio and side |
 | 11 | 3D element stiffness matrix has exactly six zero eigenvalues (the rigid motions) | closed form | 2.08e-16 | < 1e-10 | pass | the sixth smallest eigenvalue relative to the largest, worst of 3 sets of modulus, Poisson ratio and side; the seventh must be above the limit: its smallest relative value is 0.0426 |
-| 12 | 3D patch test: a linear displacement field and its uniform stress | closed form | 5.01e-10 | ≤ 1e-08 | pass | relative error, the larger of the inside displacements (1.08e-10) and the stress (5.01e-10); 4 x 3 x 5 elements, 20 conjugate-gradient steps |
-| 13 | 3D pure shear in the yz plane: shear stress equal to G gamma, other components zero | closed form | 6.74e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (8.8e-16) and the other five components (6.74e-15); 4 x 4 x 4 elements |
-| 13 | 3D pure shear in the zx plane: shear stress equal to G gamma, other components zero | closed form | 7.78e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (1.23e-15) and the other five components (7.78e-15); 4 x 4 x 4 elements |
-| 13 | 3D pure shear in the xy plane: shear stress equal to G gamma, other components zero | closed form | 4.92e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (1.23e-15) and the other five components (4.92e-15); 4 x 4 x 4 elements |
+| 12 | 3D patch test: a linear displacement field and its uniform stress | closed form | 3.97e-15 | ≤ 1e-08 | pass | relative error, the larger of the inside displacements (5.91e-16) and the stress (3.97e-15); 4 x 3 x 5 elements, 1 conjugate-gradient steps |
+| 13 | 3D pure shear in the yz plane: shear stress equal to G gamma, other components zero | closed form | 1.6e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (5.28e-16) and the other five components (1.6e-15); 4 x 4 x 4 elements |
+| 13 | 3D pure shear in the zx plane: shear stress equal to G gamma, other components zero | closed form | 3.12e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (8.8e-16) and the other five components (3.12e-15); 4 x 4 x 4 elements |
+| 13 | 3D pure shear in the xy plane: shear stress equal to G gamma, other components zero | closed form | 1.09e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (5.28e-16) and the other five components (1.09e-15); 4 x 4 x 4 elements |
 | 14 | 3D matrix-free product K(rho) x against the matrix assembled with SciPy | independent computation | 4.59e-16 | ≤ 1e-12 | pass | largest entry difference relative to the largest entry; 7 x 5 x 3 elements, 12 outside the part, random densities, 114 held degrees of freedom |
-| 15 | 3D analysis gives the same numbers on 1, 2, 5 and 12 threads and on a repeated run | repeatability | 0 | ≤ 0 | pass | largest absolute difference from the run on 1 thread, over the product, a complete solve (379 steps to 1e-10: displacements, final residual, step count) and the strain energy, sensitivity and stress of its solution; every array also compared byte for byte; 19 x 15 x 15 elements, 15360 degrees of freedom (15 blocks of a sum), 450 outside the part, random densities, held displacements |
+| 15 | 3D analysis gives the same numbers on 1, 2, 5 and 12 threads and on a repeated run | repeatability | 0 | ≤ 0 | pass | largest absolute difference from the run on 1 thread, over the product, a complete solve (24 steps to 1e-10: displacements, final residual, step count) and the strain energy, sensitivity and stress of its solution; every array also compared byte for byte; 19 x 15 x 15 elements, 15360 degrees of freedom (15 blocks of a sum), 450 outside the part, random densities, held displacements |
+| 16 | 3D solver against a sparse direct solution: uniform, 50 x 20 x 20 | independent computation | 4.97e-12 | ≤ 1e-07 | pass | \|u - u_direct\| / \|u_direct\|; uniform density 1; 3 multigrid levels, 0 coarsest degrees of freedom left out, 24 steps to 1e-10; largest entry difference over the largest entry 4.81e-12 |
+| 16 | 3D solver against a sparse direct solution: lattice, 50 x 20 x 20 | independent computation | 1.15e-11 | ≤ 1e-07 | pass | \|u - u_direct\| / \|u_direct\|; lattice of bars, 25% solid; 3 multigrid levels, 0 coarsest degrees of freedom left out, 57 steps to 1e-10; largest entry difference over the largest entry 1.08e-11 |
+| 16 | 3D solver against a sparse direct solution: irregular, 50 x 20 x 20 | independent computation | 2.34e-09 | ≤ 1e-07 | pass | \|u - u_direct\| / \|u_direct\|; irregular, cut at 40 %, 44% solid in one face-joined group; 3 multigrid levels, 0 coarsest degrees of freedom left out, 112 steps to 1e-10; largest entry difference over the largest entry 2.41e-09 |
+| 16 | 3D solver against a sparse direct solution: L-shaped, 35 x 25 x 27 | independent computation | 4.78e-12 | ≤ 1e-07 | pass | \|u - u_direct\| / \|u_direct\|; L-shaped region of 18100 elements, held on a patch of the face x = 35 that ends one node short of the edge y = 25; 3 multigrid levels, 0 coarsest degrees of freedom left out, 27 steps to 1e-10; largest entry difference over the largest entry 4.73e-12 |
+| 17 | 3D solver steps on a uniform cantilever at growing sizes | convergence | 20 | ≤ 30 | pass | largest step count; 24 x 12 x 12: 18 steps, 55 products; 48 x 24 x 24: 19 steps, 58 products; 96 x 48 x 48: 20 steps, 61 products; largest over smallest 1.11 (limit 1.5): within |
+| 17 | 3D solver steps on the lattice 0-and-1 design, 48 x 24 x 24 | convergence | 92 | ≤ 300 | pass | lattice of bars, 22% solid; 277 products with the fine stiffness matrix |
+| 17 | 3D solver steps on the irregular 0-and-1 design, 48 x 24 x 24 | convergence | 131 | ≤ 600 | pass | irregular, cut at 41 %, 45% solid in one face-joined group; 394 products with the fine stiffness matrix |
+| 18 | 3D cantilever, length 8 x depth, square section: deflection against Timoshenko beam theory | closed form | 0.0112 | < 0.02 | pass | relative error with 16 elements through the depth; with 4, 8, 16: 0.0451, 0.0186, 0.0112; the error must also shrink: it does |
 
-29 passed, 0 failed, 0 not run.
+37 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 
@@ -54,6 +63,6 @@ From the repository, with the package and SciPy installed:
     python -m michell.verification --reference tests/reference --out docs/verification.md
 
 Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`; row 9 solves its problems a
-second time with SciPy, and row 14 assembles the 3D stiffness matrix with SciPy. Without them those rows are
-listed as not run. The command exits with status 1 when a row fails (and, with `--require-all`, when a row
+second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy, and row 16 solves the 3D system
+directly with SciPy. Without them those rows are listed as not run. The command exits with status 1 when a row fails (and, with `--require-all`, when a row
 was not run). The test suite runs the same functions.

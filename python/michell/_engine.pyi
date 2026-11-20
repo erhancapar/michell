@@ -144,18 +144,23 @@ class Elasticity3d:
     """Linear elasticity on a 3D grid, E(rho) = e_min + rho^penalty (youngs_modulus - e_min), isotropic.
 
     ``held`` has one entry per degree of freedom (three per node), 1.0 to hold it. A degree of freedom
-    that touches no active element is held at zero as well. The stiffness matrix is never assembled; a
-    solve runs conjugate gradients with a diagonal (Jacobi) preconditioner until the relative residual
-    |b - K u| / |b| is at most ``tolerance``, and raises ``EngineError`` with code
-    ``solver_not_converged`` (details: steps, relative_residual) after ``max_steps`` steps. Whether the
-    part is held against every rigid motion is not checked. Every call runs on ``threads`` threads (at
-    least 1); the numbers do not depend on the thread count.
+    that touches no active element is held at zero as well. Building the object raises ``EngineError``
+    with code ``singular_system`` when a body of face-joined active elements is not held against every
+    rigid motion. The stiffness matrix is never assembled; a solve runs conjugate gradients
+    preconditioned by one multigrid V-cycle until the relative residual |b - K u| / |b| is at most
+    ``tolerance``, and raises ``EngineError`` with code ``solver_not_converged`` (details: steps,
+    relative_residual) after ``max_steps`` steps. Every call runs on ``threads`` threads (at least 1);
+    the numbers do not depend on the thread count.
     """
 
     grid: Grid3d
     tolerance: float
     max_steps: int
     threads: int
+    multigrid_levels: int
+    """The number of multigrid levels, the finest included (1: the grid is solved directly)."""
+    multigrid_dropped: int
+    """The number of degrees of freedom of the coarsest multigrid level that its direct solve leaves out."""
 
     def __init__(
         self,
@@ -184,8 +189,9 @@ class Elasticity3d:
         """lambda with K(rho) lambda = rhs, every held degree of freedom at zero."""
 
     def last_solve_report(self) -> dict[str, int | float] | None:
-        """``{"steps": ..., "relative_residual": ...}`` of the last ``solve`` or ``adjoint``; None before
-        the first one and after one that raised an error."""
+        """``{"steps": ..., "relative_residual": ..., "products": ...}`` of the last ``solve`` or
+        ``adjoint`` (``products``: the products with the fine stiffness matrix, the multigrid smoother's
+        included); None before the first one and after one that raised an error."""
 
     def product(self, rho: Vector, x: Vector) -> Vector:
         """K(rho) x without assembling K; held degrees of freedom and those that touch no active element

@@ -7,6 +7,7 @@ import numpy as np
 from michell import _engine
 from michell.analysis import Grid
 from michell.analysis3d import Grid3d
+from michell.errors import InvalidValue
 from michell.row import Row, compared
 
 
@@ -194,17 +195,17 @@ class KeepSolid:
     def __init__(self, mask, grid: Grid | Grid3d | None = None):
         values = np.asarray(mask)
         if values.ndim != 1:
-            raise ValueError("the mask of KeepSolid needs one entry per element, as a flat array")
+            raise InvalidValue("the mask of KeepSolid needs one entry per element, as a flat array")
         if values.dtype != bool:
             if not np.all((values == 0) | (values == 1)):
-                raise ValueError("the mask of KeepSolid holds only True/False or 0/1")
+                raise InvalidValue("the mask of KeepSolid holds only True/False or 0/1")
             values = values == 1
         if grid is not None:
             if values.size != grid.n_elements:
-                raise ValueError(f"the mask of KeepSolid needs {grid.n_elements} entries (got {values.size})")
+                raise InvalidValue(f"the mask of KeepSolid needs {grid.n_elements} entries (got {values.size})")
             inactive = values & (np.asarray(grid.active) == 0)
             if inactive.any():
-                raise ValueError(
+                raise InvalidValue(
                     f"KeepSolid marks {int(inactive.sum())} inactive elements (first {int(np.flatnonzero(inactive)[0])}); "
                     f"only elements of the part can be kept solid"
                 )
@@ -214,7 +215,7 @@ class KeepSolid:
     def _check(self, values: np.ndarray, label: str) -> np.ndarray:
         values = np.asarray(values, dtype=float)
         if values.shape != self.mask.shape:
-            raise ValueError(f"{label} needs {self.mask.size} entries, one per element (got {values.size})")
+            raise InvalidValue(f"{label} needs {self.mask.size} entries, one per element (got {values.size})")
         return values
 
     def forward(self, x: np.ndarray) -> np.ndarray:

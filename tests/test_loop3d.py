@@ -14,7 +14,7 @@ from michell.evaluation import evaluate
 from michell.gradient_check import small_problem_3d
 
 ROOT = Path(__file__).parent.parent
-STEEL = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_mm3=7.85e-3)
+STEEL = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_cm3=7.85)
 
 
 def cantilever_3d(nx=12, ny=4, nz=4, threads=1, **settings):
@@ -70,7 +70,7 @@ def test_the_record_holds_the_solver_steps_and_the_threads():
     result = michell.optimise(
         problem,
         goal=michell.Compliance(),
-        limits=[michell.Limit(michell.Mass(), at_most=0.3 * STEEL.density_g_mm3 * problem.grid.n_elements)],
+        limits=[michell.Limit(michell.Mass(), at_most=0.3 * STEEL.mass_g(problem.grid.n_elements))],
         filters=[michell.HelmholtzFilter(problem.grid, 2.0, threads=2)],
         optimiser=michell.MovingAsymptotes(),
         x=np.full(problem.grid.n_elements, 0.3),

@@ -17,12 +17,13 @@ The package holds:
 - several designs from one set of design variables (``michell.designs``): ``on``, which names the design a
   goal or a limit reads, and ``robust_designs``, the eroded, nominal and dilated designs of the robust
   formulation;
-- the optimisation loop ``optimise`` with its ``Limit``, the ``OptimalityCriteria`` optimiser (the engine's
-  ``Oc`` update), the ``MovingAsymptotes`` optimiser (the engine's ``Mma`` update), and the
-  finite-difference gradient check ``check_gradient``;
+- the optimisation loop ``optimise`` with its ``Limit``, its ``Result`` and the ``LimitNotMet`` warning,
+  the ``OptimalityCriteria`` optimiser (the engine's ``Oc`` update), the ``MovingAsymptotes`` optimiser
+  (the engine's ``Mma`` update), and the finite-difference gradient check ``check_gradient``;
 - ``dot``, the dot product of two vectors in the engine, for responses (with the OpenBLAS build that NumPy
   ships, ``a @ b`` runs long products on every core);
-- ``EngineError``, the error every engine call raises.
+- ``EngineError``, the error every engine call raises; the checks written in Python raise it too, with
+  code ``invalid_input`` (also a ``ValueError``, ``TypeError`` or ``KeyError``, see ``michell.errors``).
 
 The verification rows of ``docs/verification.md`` are in the subpackage ``michell.verification``
 (``python -m michell.verification`` writes the table); it is not imported with ``michell``.
@@ -51,7 +52,7 @@ from michell.member_size import MemberSize, member_threshold
 from michell.mma import MovingAsymptotes
 from michell.modules import Filter, Partials, Response
 from michell.oc import OptimalityCriteria
-from michell.optimise import Limit, Pass, Result, optimise
+from michell.optimise import Limit, LimitNotMet, Pass, Result, optimise
 from michell.problem import LoadCase, Material, Problem
 from michell.responses import Compliance, Mass
 from michell.row import Row
@@ -72,6 +73,7 @@ __all__ = [
     "HelmholtzFilter",
     "KeepSolid",
     "Limit",
+    "LimitNotMet",
     "LoadCase",
     "Mass",
     "Material",

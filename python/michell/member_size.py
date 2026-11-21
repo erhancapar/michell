@@ -55,6 +55,7 @@ import math
 import numpy as np
 
 from michell import _engine
+from michell.errors import InvalidType, InvalidValue
 from michell.filters import DensityFilter, HelmholtzFilter, Projection
 from michell.modules import Partials
 from michell.row import Row, compared
@@ -91,11 +92,11 @@ def member_threshold(filter, size_mm: float) -> float:
     """
     size = float(size_mm)
     if not (math.isfinite(size) and size >= 0.0):
-        raise ValueError(f"the member size must be a number at least 0; got {size_mm!r}")
+        raise InvalidValue(f"the member size must be a number at least 0; got {size_mm!r}")
     if isinstance(filter, HelmholtzFilter):
         return 1.0 - math.exp(-size / (2.0 * filter.length))
     if not isinstance(filter, _engine.DensityFilter):
-        raise TypeError(f"member_threshold takes a DensityFilter or a HelmholtzFilter; got {type(filter).__name__}")
+        raise InvalidType(f"member_threshold takes a DensityFilter or a HelmholtzFilter; got {type(filter).__name__}")
     t = size / (2.0 * filter.radius)
     if t >= 1.0:
         return 1.0
@@ -130,9 +131,9 @@ class MemberSize:
 
     def __init__(self, filter, projection: Projection, threshold: float, c: float | None = None):
         if not isinstance(filter, (_engine.DensityFilter, HelmholtzFilter)):
-            raise TypeError(f"MemberSize takes a DensityFilter or a HelmholtzFilter; got {type(filter).__name__}")
+            raise InvalidType(f"MemberSize takes a DensityFilter or a HelmholtzFilter; got {type(filter).__name__}")
         if not isinstance(projection, _engine.Projection):
-            raise TypeError(f"MemberSize takes a Projection; got {type(projection).__name__}")
+            raise InvalidType(f"MemberSize takes a Projection; got {type(projection).__name__}")
         self.radius = float(filter.radius)
         self.element_size = float(filter.element_size)
         self.projection = projection

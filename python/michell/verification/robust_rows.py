@@ -168,7 +168,7 @@ def robust_mbb(
         filtered = density_filter.forward(x)
         nominal = apply_filters(filtered, designs["nominal"])[-1]
         dilated = apply_filters(filtered, designs["dilated"])[-1]
-        bound = asked_mass * float(dilated.sum()) / float(nominal.sum())  # unit density and unit element volume
+        bound = asked_mass * float(dilated.sum()) / float(nominal.sum())  # 1 g/mm^3 on elements of 1 mm^3
         bounds.append(bound)
         result = optimise(
             problem,

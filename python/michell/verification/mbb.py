@@ -6,8 +6,8 @@ that code, run in GNU Octave (see ``tests/reference/top88/PROVENANCE.txt``).
 
 Set-up of that code: half of the beam, square elements of unit side and thickness, unit modulus, E_min 1e-9,
 Poisson 0.3, penalty 3, a unit load down on the top-left node, x held on the whole left edge (the symmetry
-line), y held at the bottom-right node; volume fraction 0.5, here a mass limit of 0.5 nx ny g with unit
-material density.
+line), y held at the bottom-right node; volume fraction 0.5, here a mass limit of 0.5 nx ny g with a
+material density of 1 g/mm^3 (1000 g/cm^3).
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def mbb_problem(nx: int, ny: int) -> Problem:
     held[2 * grid.node(nx, 0) + 1] = True
     loads = np.zeros(grid.n_dofs)
     loads[2 * grid.node(0, ny) + 1] = -1.0
-    material = Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_mm3=1.0)
+    material = Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_cm3=1000.0)
     return Problem(grid, held, material, [LoadCase("load", loads)], penalty=3.0, e_min=1e-9)
 
 

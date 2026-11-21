@@ -47,7 +47,7 @@ for j in range(ny + 1):
 held[2 * grid.node(nx, 0) + 1] = True
 loads = np.zeros(grid.n_dofs)
 loads[2 * grid.node(0, ny) + 1] = -1.0
-material = michell.Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_mm3=1.0)
+material = michell.Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_cm3=1000.0)
 problem = michell.Problem(grid, held, material, [michell.LoadCase("load", loads)], penalty=3.0, e_min=1e-9)
 
 # OpenBLAS starts its threads when NumPy is imported, and they wait at full load for a moment before they

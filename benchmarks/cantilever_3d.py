@@ -72,9 +72,9 @@ for k in range(nz + 1):
 loads = np.zeros(grid.n_dofs)
 for j in range(ny + 1):
     loads[3 * grid.node(nx, j, 0) + 2] = -1000.0 / ny * (0.5 if j in (0, ny) else 1.0)
-steel = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_mm3=7.85e-3)
+steel = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_cm3=7.85)
 problem = michell.Problem(grid, held, steel, [michell.LoadCase("tip", loads)], threads=args.threads)
-mass_limit = 0.15 * steel.density_g_mm3 * grid.voxel_volume_mm3 * grid.n_elements
+mass_limit = 0.15 * steel.mass_g(grid.voxel_volume_mm3 * grid.n_elements)
 pde_filter = michell.HelmholtzFilter(grid, 2.5, threads=args.threads)
 optimiser = TimedPasses(michell.MovingAsymptotes())
 setup_seconds = time.perf_counter() - started

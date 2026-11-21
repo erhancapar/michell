@@ -16,6 +16,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from michell._engine import dot
+from michell.errors import InvalidValue
 from michell.evaluation import Evaluation
 from michell.modules import Filter, Response
 from michell.problem import Problem
@@ -84,13 +85,13 @@ def total_gradient(
     else:
         d_density = np.array(partials.d_density, dtype=np.float64)  # a copy: it is added to below
         if d_density.shape != (n_elements,):
-            raise ValueError(
+            raise InvalidValue(
                 f"{response.name}: d_density needs one value per element ({n_elements}); "
                 f"got shape {d_density.shape}"
             )
     for (physics, case), d_state in partials.d_state.items():
         if physics not in response.reads:
-            raise ValueError(f"{response.name}: d_state for {physics!r}, which is not in `reads`")
+            raise InvalidValue(f"{response.name}: d_state for {physics!r}, which is not in `reads`")
         d_state = np.ascontiguousarray(d_state, dtype=np.float64)
         u = ev.state(physics, case)
         lam, steps = adjoint_state(problem, ev.density, u, ev.loads(physics, case), d_state)

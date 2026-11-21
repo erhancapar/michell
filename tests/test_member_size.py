@@ -178,14 +178,15 @@ def test_a_member_size_limit_on_a_design_nothing_else_reads_causes_no_solve():
 
     problem.solve, problem.adjoint = counted_solve, counted_adjoint
     result = member_size_run(problem, x, filters[0], with_member_size=True)
-    # One solve per load case per pass, all on the nominal design; compliance needs no adjoint solve.
-    assert calls == ["solve"] * (len(problem.cases) * len(result.passes))
+    # One solve per load case per pass and one for the returned design, all on the nominal design;
+    # compliance needs no adjoint solve.
+    assert calls == ["solve"] * (len(problem.cases) * (len(result.passes) + 1))
     assert all(set(p.design_solver_steps) == {"nominal"} for p in result.passes)
     assert all(len(p.limits) == 2 and p.limits[1] > 0.0 for p in result.passes)
     assert np.array_equal(result.designs["filtered"], result.density)
     calls.clear()
     plain = member_size_run(problem, x, filters[0], with_member_size=False)
-    assert calls == ["solve"] * (len(problem.cases) * len(plain.passes))
+    assert calls == ["solve"] * (len(problem.cases) * (len(plain.passes) + 1))
 
 
 def test_the_gradient_of_the_member_size_limit_through_the_loop_matches_finite_differences():

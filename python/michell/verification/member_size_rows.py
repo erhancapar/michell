@@ -448,7 +448,7 @@ def member_size_mbb(
     corner = np.zeros((ny, nx), dtype=bool)
     corner[: int(size), nx - int(size) :] = True  # size x size elements at the support, bottom right
     pad = KeepSolid(corner.ravel(), problem.grid)
-    asked_mass = ROW_27_FRACTION * nx * ny  # unit density and unit element volume
+    asked_mass = ROW_27_FRACTION * nx * ny  # 1 g/mm^3 on elements of 1 mm^3
     mass_limit = Limit(on("nominal", Mass()), at_most=asked_mass)
     x = np.full(problem.grid.n_elements, ROW_27_START)
     projection = None

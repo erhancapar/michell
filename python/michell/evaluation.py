@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping, Sequence
 
 import numpy as np
 
+from michell.errors import InvalidValue, UnknownName
 from michell.modules import Filter
 from michell.problem import Problem
 
@@ -71,7 +72,7 @@ class Evaluation:
 
     def state(self, physics: str, case: str) -> np.ndarray:
         if (physics, case) not in self._states:
-            raise KeyError(
+            raise UnknownName(
                 f"no solved state for ({physics!r}, {case!r}): a response must list the physics it "
                 f"reads in `reads`"
             )
@@ -79,7 +80,7 @@ class Evaluation:
 
     def loads(self, physics: str, case: str) -> np.ndarray:
         if physics != "elasticity":
-            raise KeyError(f"unknown physics {physics!r}; known: {KNOWN_PHYSICS}")
+            raise UnknownName(f"unknown physics {physics!r}; known: {KNOWN_PHYSICS}")
         return self._problem.case(case).loads
 
 
@@ -110,7 +111,7 @@ def evaluate(
     steps = 0
     for physics in sorted(set(reads)):
         if physics != "elasticity":
-            raise ValueError(f"unknown physics {physics!r}; known: {KNOWN_PHYSICS}")
+            raise InvalidValue(f"unknown physics {physics!r}; known: {KNOWN_PHYSICS}")
         for case in problem.cases:
             first_guess = None if start is None else start.get((physics, case.name))
             states[(physics, case.name)], case_steps = problem.solve(density, case.loads, start=first_guess)

@@ -98,11 +98,11 @@ for j in range(ny + 1):
     share = 0.5 if j in (0, ny) else 1.0
     loads[3 * grid.node(nx, j, 0) + 2] = -1000.0 / ny * share
 
-steel = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_mm3=7.85e-3)
+steel = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_cm3=7.85)
 problem = michell.Problem(grid, held, steel, [michell.LoadCase("tip", loads)], threads=args.threads)
 
 # Least compliance with at most 15 % of the block's mass.
-block_mass = steel.density_g_mm3 * grid.voxel_volume_mm3 * grid.n_elements
+block_mass = steel.mass_g(grid.voxel_volume_mm3 * grid.n_elements)
 mass_limit = 0.15 * block_mass
 pde_filter = michell.HelmholtzFilter(grid, 2.5, threads=args.threads)
 started = time.perf_counter()
@@ -146,18 +146,18 @@ else:
         records += result.passes
         print(
             f"beta {beta:4g}: bound on the dilated mass {bound:.4g} g, compliance of the eroded design "
-            f"{result.passes[-1].goal:.4g} N mm"
+            f"{result.goal:.4g} N mm"
         )
     density = result.designs["nominal"]
     for name in ("eroded", "nominal", "dilated"):  # each design solved once more for its compliance
         u, _ = problem.solve(result.designs[name], loads)
         print(f"{name:8}: compliance {michell.dot(loads, u):.4g} N mm")
 seconds = time.perf_counter() - started
-first, last = records[0], records[-1]
-mass = steel.density_g_mm3 * grid.voxel_volume_mm3 * float(density.sum())
+first = records[0]
+mass = steel.mass_g(grid.voxel_volume_mm3 * float(density.sum()))
 print(
     f"{len(records)} passes in {seconds:.1f} s on {result.threads} threads: compliance {first.goal:.4g} "
-    f"-> {last.goal:.4g} N mm, mass{' of the nominal design' if args.robust else ''} {mass:.4g} g of at most "
+    f"-> {result.goal:.4g} N mm, mass{' of the nominal design' if args.robust else ''} {mass:.4g} g of at most "
     f"{mass_limit:.4g} g"
 )
 
@@ -171,7 +171,7 @@ summary = {
     "threads": result.threads,
     "seconds": seconds,
     "compliance_first": first.goal,
-    "compliance_last": last.goal,
+    "compliance_last": result.goal,
     "mass": mass,
     "mass_limit": mass_limit,
     "solver_steps": [p.solver_steps for p in records],

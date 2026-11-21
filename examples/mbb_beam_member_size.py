@@ -74,7 +74,7 @@ held[2 * grid.node(nx, 0) + 1] = True
 loads = np.zeros(grid.n_dofs)
 loads[2 * grid.node(0, ny) + 1] = -1.0
 
-material = michell.Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_mm3=1.0)
+material = michell.Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_cm3=1000.0)
 problem = michell.Problem(grid, held, material, [michell.LoadCase("load", loads)], penalty=3.0, e_min=1e-9)
 
 size = 7.0  # the minimum member size, mm (7 element sides)
@@ -84,7 +84,7 @@ density_filter = michell.DensityFilter(grid, size, outside=outside)
 corner = np.zeros((ny, nx), dtype=bool)
 corner[: int(size), nx - int(size) :] = True  # the solid pad at the support, bottom right
 pad = michell.KeepSolid(corner.ravel(), grid)
-mass_limit = michell.Limit(michell.on("nominal", michell.Mass()), at_most=0.35 * nx * ny)  # unit density
+mass_limit = michell.Limit(michell.on("nominal", michell.Mass()), at_most=0.35 * nx * ny)  # 1 g per element
 goal = michell.on("nominal", michell.Compliance())
 
 # Step 1: without the limit, beta from 1 to 32.
@@ -97,7 +97,7 @@ for beta in (1.0, 2.0, 4.0, 8.0, 16.0, 32.0):
         designs={"nominal": [projection, pad]},
     )  # fmt: skip
     x = result.x
-    print(f"beta {beta:4g}: compliance {result.passes[-1].goal:.2f} N mm")
+    print(f"beta {beta:4g}: compliance {result.goal:.2f} N mm")
 
 # Step 2: the member-size limit switched on at beta 32, on the design "filtered" (the filtered field).
 member_size = michell.MemberSize(density_filter, projection, michell.member_threshold(density_filter, size))

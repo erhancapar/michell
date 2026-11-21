@@ -98,7 +98,7 @@ def small_problem(seed: int = 0) -> tuple[Problem, np.ndarray, list[Filter]]:
     tip[2 * grid.node(nx, ny // 2) + 1] = -1000.0
     pull = np.zeros(grid.n_dofs)
     pull[2 * grid.node(nx, ny)] = 500.0
-    material = Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_mm3=7.85e-3)
+    material = Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_cm3=7.85)
     problem = Problem(grid, held, material, [LoadCase("tip", tip, 1.0), LoadCase("pull", pull, 0.5)])
     x = np.random.default_rng(seed).uniform(0.1, 0.9, grid.n_elements)
     return problem, x, [DensityFilter(grid, 3.75)]
@@ -132,7 +132,7 @@ def small_problem_3d(
     down[3 * grid.node(nx, ny // 2, 0) + 2] = -1000.0
     pull = np.zeros(grid.n_dofs)
     pull[3 * grid.node(nx, ny, nz) + 1] = 500.0
-    material = Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_mm3=7.85e-3)
+    material = Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_cm3=7.85)
     problem = Problem(
         grid, held, material, [LoadCase("down", down, 1.0), LoadCase("pull", pull, 0.5)],
         solver_tolerance=solver_tolerance,

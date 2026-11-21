@@ -182,7 +182,8 @@ writes the whole procedure out, and verification row 27 runs it.
 - **Scope:** the limit is switched on after a layout has formed and reshapes its members; where the asked
   size cannot be reached without changing the layout, it does not get there (trials on the MBB beam of row
   27 at a mass fraction of 0.3 with sizes of 7 and 8 elements missed the bound by a factor of 2 to 3, at a
-  compliance several times higher), so a run must check that the bound is met.
+  compliance several times higher), so a run must check that the bound is met: `Result.limits_met` says so,
+  and `optimise` warns (`LimitNotMet`) when it is not.
 - Only the solid phase is built; the paper's constraint on holes (the void phase) is not.
 
 ## Two small examples
@@ -192,11 +193,11 @@ class Mass:
     name, unit, reads = "mass", "g", ()
 
     def value(self, ev):                            # inactive elements carry no mass
-        per_element = ev.material.density_g_mm3 * ev.grid.voxel_volume_mm3
+        per_element = ev.material.mass_g(ev.grid.voxel_volume_mm3)
         return per_element * (ev.grid.active * ev.density).sum()
 
     def partials(self, ev):
-        per_element = ev.material.density_g_mm3 * ev.grid.voxel_volume_mm3
+        per_element = ev.material.mass_g(ev.grid.voxel_volume_mm3)
         return Partials(d_density=per_element * ev.grid.active, d_state={})
 
 

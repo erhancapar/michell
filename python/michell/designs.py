@@ -25,6 +25,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from michell.adjoint import backward_through_filters, total_gradient
+from michell.errors import InvalidType, InvalidValue
 from michell.evaluation import Evaluation, apply_filters, evaluate
 from michell.filters import Projection
 from michell.modules import Filter, Partials, Response
@@ -69,9 +70,9 @@ class On:
 def on(design: str, response: Response) -> On:
     """``response`` read on the design called ``design``: ``on("eroded", Compliance())``."""
     if not isinstance(design, str):
-        raise TypeError(f"a design is named by a string; got {design!r}")
+        raise InvalidType(f"a design is named by a string; got {design!r}")
     if isinstance(response, On):
-        raise ValueError(f"{response.name} already reads the design {response.design!r}")
+        raise InvalidValue(f"{response.name} already reads the design {response.design!r}")
     return On(design, response)
 
 
@@ -80,7 +81,7 @@ def robust_designs(beta: float, spread: float) -> dict[str, list[Filter]]:
     ``nominal`` and ``dilated``, each one ``Projection`` of sharpness ``beta`` at the threshold
     0.5 + spread, 0.5 and 0.5 - spread. ``0 < spread < 0.5``."""
     if not 0.0 < spread < 0.5:
-        raise ValueError(f"the spread of the thresholds must lie between 0 and 0.5; got {spread}")
+        raise InvalidValue(f"the spread of the thresholds must lie between 0 and 0.5; got {spread}")
     return {
         "eroded": [Projection(beta, 0.5 + spread)],
         "nominal": [Projection(beta, 0.5)],
@@ -93,13 +94,13 @@ def design_chains(designs: Mapping[str, Sequence[Filter]] | None) -> dict[str | 
     if designs is None:
         return {UNNAMED: ()}
     if not isinstance(designs, Mapping) or not designs:
-        raise ValueError("designs must be a mapping from a name to a list of filters, with at least one design")
+        raise InvalidValue("designs must be a mapping from a name to a list of filters, with at least one design")
     chains = {}
     for name, chain in designs.items():
         if not isinstance(name, str):
-            raise TypeError(f"a design is named by a string; got {name!r}")
+            raise InvalidType(f"a design is named by a string; got {name!r}")
         if not isinstance(chain, (list, tuple)):
-            raise TypeError(f"design {name!r}: the filters of a design must be a list; got {type(chain).__name__}")
+            raise InvalidType(f"design {name!r}: the filters of a design must be a list; got {type(chain).__name__}")
         chains[name] = tuple(chain)
     return chains
 
@@ -111,18 +112,18 @@ def design_of(response: Response, chains: Mapping[str | None, Sequence[Filter]])
     named = isinstance(response, On)
     if UNNAMED in chains:
         if named:
-            raise ValueError(
+            raise InvalidValue(
                 f"{response.name} reads the design {response.design!r}, but no designs were given; pass "
                 f"designs= to name them"
             )
         return UNNAMED, response
     if not named:
-        raise ValueError(
+        raise InvalidValue(
             f"when designs are given, every goal and limit must name the design it reads, as "
             f"michell.on(name, response); {response.name} does not (the designs are {list(chains)})"
         )
     if response.design not in chains:
-        raise ValueError(f"{response.name} reads the design {response.design!r}; the designs are {list(chains)}")
+        raise InvalidValue(f"{response.name} reads the design {response.design!r}; the designs are {list(chains)}")
     return response.design, response.response
 
 

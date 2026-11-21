@@ -11,15 +11,22 @@ import numpy as np
 from michell import _engine
 from michell.analysis import Elasticity
 from michell.analysis3d import Elasticity3d
+from michell.errors import InvalidValue, UnknownName
 
 
 @dataclass(frozen=True)
 class Material:
-    """The constants of the solid material. Units: MPa and g/mm^3."""
+    """The constants of the solid material: the modulus in MPa, the density in g/cm^3 (steel 7.85).
+
+    The lengths of michell are in mm; ``mass_g`` is the one place where the density meets them."""
 
     youngs_modulus: float
     poisson_ratio: float
-    density_g_mm3: float
+    density_g_cm3: float
+
+    def mass_g(self, volume_mm3):
+        """The mass in g of ``volume_mm3`` (a number or an array) of solid material."""
+        return self.density_g_cm3 / 1000.0 * volume_mm3
 
 
 @dataclass(frozen=True)
@@ -44,8 +51,8 @@ class Problem:
     Either is kept as ``problem.elasticity``.
 
     ``held`` has one entry per degree of freedom (a boolean array or float64 0.0 / 1.0); a held degree of
-    freedom stays at zero. The modulus of an element of density rho is
-    E(rho) = e_min + rho^penalty (E_0 - e_min) (modified SIMP); ``e_min`` defaults to 1e-9 E_0.
+    freedom stays at zero, and a load case that loads one is refused. The modulus of an element of density
+    rho is E(rho) = e_min + rho^penalty (E_0 - e_min) (modified SIMP); ``e_min`` defaults to 1e-9 E_0.
 
     ``threads`` (the number of threads every solve runs on), ``solver_tolerance`` (the relative residual at
     which a solve stops) and ``solver_max_steps`` (the steps allowed before ``solver_not_converged``) are
@@ -68,10 +75,10 @@ class Problem:
     ):
         names = [case.name for case in cases]
         if len(set(names)) != len(names):
-            raise ValueError(f"load case names must differ; got {names}")
+            raise InvalidValue(f"load case names must differ; got {names}")
         for case in cases:
             if case.loads.shape != (grid.n_dofs,):
-                raise ValueError(
+                raise InvalidValue(
                     f"load case {case.name!r} needs one load per degree of freedom ({grid.n_dofs}); "
                     f"got shape {case.loads.shape}"
                 )
@@ -102,12 +109,22 @@ class Problem:
                 if value != default
             }
             if given:
-                raise ValueError(
+                raise InvalidValue(
                     f"{', '.join(given)} only apply to a 3D grid (Grid3d): the 2D analysis solves directly "
                     f"on one thread; got {given}"
                 )
             self.elasticity = Elasticity(grid, held, **constants)
         self.threads = threads
+        held_mask = np.asarray(held, dtype=np.float64) != 0.0
+        for case in self.cases:
+            loaded = np.flatnonzero(held_mask & (case.loads != 0.0))
+            if loaded.size:
+                first = ", ".join(str(int(dof)) for dof in loaded[:5])
+                raise InvalidValue(
+                    f"load case {case.name!r} loads {loaded.size} held degrees of freedom (first: {first}); a "
+                    f"held degree of freedom stays at zero, so its load would be lost",
+                    {"held_loaded_dofs": int(loaded.size), "first_dof": int(loaded[0])},
+                )
 
     def solve(self, density: np.ndarray, loads: np.ndarray, start: np.ndarray | None = None) -> tuple[np.ndarray, int]:
         """The displacements u with K(density) u = loads, and the number of conjugate-gradient steps the
@@ -131,4 +148,4 @@ class Problem:
         for case in self.cases:
             if case.name == name:
                 return case
-        raise KeyError(f"no load case called {name!r}; the cases are {[c.name for c in self.cases]}")
+        raise UnknownName(f"no load case called {name!r}; the cases are {[c.name for c in self.cases]}")

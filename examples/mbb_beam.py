@@ -48,7 +48,7 @@ held[2 * grid.node(nx, 0) + 1] = True
 loads = np.zeros(grid.n_dofs)
 loads[2 * grid.node(0, ny) + 1] = -1.0
 
-material = michell.Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_mm3=1.0)
+material = michell.Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_cm3=1000.0)
 problem = michell.Problem(grid, held, material, [michell.LoadCase("load", loads)], penalty=3.0, e_min=1e-9)
 
 # Least compliance with at most half the material, until no design variable changes by more than 0.01.
@@ -62,7 +62,7 @@ result = michell.optimise(
     passes=1000,
     stop_change=0.01,
 )
-print(f"{len(result.passes)} passes, compliance {result.passes[-1].goal:.2f} N mm")
+print(f"{len(result.passes)} passes, compliance {result.goal:.2f} N mm")
 
 # The density, one row of elements per image row with y up, solid black; four pixels per element side.
 density = np.clip(result.density, 0.0, 1.0).reshape(ny, nx)[::-1]

@@ -109,7 +109,7 @@ def cantilever_3d_problem(nx=8, ny=4, nz=4):
             held[3 * node : 3 * node + 3] = True
     loads = np.zeros(grid.n_dofs)
     loads[3 * grid.node(nx, ny // 2, 0) + 2] = -1000.0
-    steel = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_mm3=7.85e-3)
+    steel = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_cm3=7.85)
     problem = michell.Problem(grid, held, steel, [michell.LoadCase("down", loads)], solver_tolerance=1e-8)
     x = np.random.default_rng(3).uniform(0.3, 0.7, grid.n_elements)
     return problem, x, [michell.HelmholtzFilter(grid, 3.75)]

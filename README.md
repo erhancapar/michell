@@ -49,7 +49,7 @@ held[2 * grid.node(nx, 0) + 1] = True
 loads = np.zeros(grid.n_dofs)
 loads[2 * grid.node(0, ny) + 1] = -1.0
 
-material = michell.Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_mm3=1.0)
+material = michell.Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_cm3=1000.0)
 problem = michell.Problem(grid, held, material, [michell.LoadCase("load", loads)], penalty=3.0, e_min=1e-9)
 
 # Least compliance with at most half the material, until no design variable changes by more than 0.01.
@@ -63,7 +63,7 @@ result = michell.optimise(
     passes=1000,
     stop_change=0.01,
 )
-print(f"{len(result.passes)} passes, compliance {result.passes[-1].goal:.2f} N mm")
+print(f"{len(result.passes)} passes, compliance {result.goal:.2f} N mm")
 ```
 
 ![The optimised half MBB beam: a black truss-like layout on a white background](docs/images/mbb_150x50.png)
@@ -96,11 +96,11 @@ for j in range(ny + 1):
     share = 0.5 if j in (0, ny) else 1.0
     loads[3 * grid.node(nx, j, 0) + 2] = -1000.0 / ny * share
 
-steel = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_mm3=7.85e-3)
+steel = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_cm3=7.85)
 problem = michell.Problem(grid, held, steel, [michell.LoadCase("tip", loads)], threads=4)
 
 # Least compliance with at most 15 % of the block's mass.
-block_mass = steel.density_g_mm3 * grid.voxel_volume_mm3 * grid.n_elements
+block_mass = steel.mass_g(grid.voxel_volume_mm3 * grid.n_elements)
 mass_limit = 0.15 * block_mass
 pde_filter = michell.HelmholtzFilter(grid, 2.5, threads=4)
 result = michell.optimise(

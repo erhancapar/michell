@@ -16,6 +16,7 @@ import numpy as np
 from michell import _engine
 from michell._engine import dot
 from michell.designs import On
+from michell.errors import InvalidValue
 from michell.evaluation import Evaluation
 from michell.modules import Filter
 from michell.optimise import Limit
@@ -35,21 +36,21 @@ class OptimalityCriteria:
 
     def start(self, problem: Problem, x: np.ndarray, limits: Sequence[Limit], filters: Sequence[Filter]) -> None:
         if problem.is_3d:
-            raise ValueError("OC runs on a 2D grid only; use MovingAsymptotes (MMA) on a 3D grid")
+            raise InvalidValue("OC runs on a 2D grid only; use MovingAsymptotes (MMA) on a 3D grid")
         if len(limits) != 1:
-            raise ValueError(f"OC handles exactly one limit; got {len(limits)}")
+            raise InvalidValue(f"OC handles exactly one limit; got {len(limits)}")
         limit = limits[0]
         if isinstance(limit.response, On):
-            raise ValueError(
+            raise InvalidValue(
                 "OC measures its limit on the output of the filters and cannot read a named design; use "
                 "MovingAsymptotes (MMA) with designs"
             )
         if limit.response.reads:
-            raise ValueError(
+            raise InvalidValue(
                 f"OC needs a limit that reads no physics; {limit.response.name} reads {limit.response.reads}"
             )
         if len(filters) > 1 or (filters and not isinstance(filters[0], _engine.DensityFilter)):
-            raise ValueError(
+            raise InvalidValue(
                 "OC measures its limit on the filtered field and supports only the density filter; "
                 "use MovingAsymptotes (MMA) with any other filter"
             )
@@ -79,10 +80,10 @@ class OptimalityCriteria:
             ev = Evaluation(problem, rho, states={})
             partials = limit.response.partials(ev)
             if partials.d_density is None or partials.d_state:
-                raise ValueError(f"OC needs a limit with d_density only; {limit.response.name} has other partials")
+                raise InvalidValue(f"OC needs a limit with d_density only; {limit.response.name} has other partials")
             if weights is None:
                 weights = np.array(partials.d_density, dtype=np.float64)
             scale = np.abs(weights).sum()
             if abs(limit.response.value(ev) - dot(weights, rho)) > LINEARITY_TOLERANCE * scale:
-                raise ValueError(f"OC needs a limit linear in the density; {limit.response.name} is not")
+                raise InvalidValue(f"OC needs a limit linear in the density; {limit.response.name} is not")
         return weights

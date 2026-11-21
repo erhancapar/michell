@@ -53,11 +53,11 @@ held[2 * grid.node(nx, 0) + 1] = True
 loads = np.zeros(grid.n_dofs)
 loads[2 * grid.node(0, ny) + 1] = -1.0
 
-material = michell.Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_mm3=1.0)
+material = michell.Material(youngs_modulus=1.0, poisson_ratio=0.3, density_g_cm3=1000.0)
 problem = michell.Problem(grid, held, material, [michell.LoadCase("load", loads)], penalty=3.0, e_min=1e-9)
 
 density_filter = michell.DensityFilter(grid, 0.04 * nx)  # radius 7.2 element sides
-asked_mass = 0.5 * nx * ny  # half of the design space, in g (unit density, unit element volume)
+asked_mass = 0.5 * nx * ny  # half of the design space, in g (1 g/mm^3 on elements of 1 mm^3)
 spread = 0.25
 
 # Continuation and rescaling, after Wang, Lazarov and Sigmund (2011) (the rescaling rule as
@@ -91,7 +91,7 @@ for beta in (1.0, 2.0, 4.0, 8.0, 16.0, 32.0):
     x = result.x
     print(
         f"beta {beta:4g}: bound on the dilated mass {bound:.1f} g, compliance of the eroded design "
-        f"{result.passes[-1].goal:.2f} N mm, mass of the nominal design {result.designs['nominal'].sum():.1f} g"
+        f"{result.goal:.2f} N mm, mass of the nominal design {result.designs['nominal'].sum():.1f} g"
     )
 seconds = time.perf_counter() - started
 

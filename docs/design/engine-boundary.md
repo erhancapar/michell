@@ -124,7 +124,8 @@ matrix with every active element at the same modulus; in 3D by checking, for eve
 joined through shared faces, that its held degrees of freedom stop all six rigid motions, with the size of the
 body and one of its elements in the details; the 3D solve itself can also raise it, if the direct solve on the
 coarsest multigrid level meets a pivot that is not positive for the density of that call); `solver_not_converged` with the residual and step count (the
-MMA subproblem; the iterative solver in 3D).
+MMA subproblem; the iterative solver in 3D). An `EngineError` that leaves `michell.optimise` carries the passes
+completed before it as `partial_result`, a `Result` like the one a run that stopped there would return.
 The 3D check is stricter than the mathematics in one rare case: elements that meet only along an edge or at a
 corner count as separate bodies, so a body restrained only through such a hinge to another, held body is
 refused, although the hinge stops some of its motions.

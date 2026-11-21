@@ -20,7 +20,8 @@ fixed sharpness of the projection, section 3):
    value at the centre of a strip 7 elements wide), c = r^4 = 2401 with r = R / h = 7 (section 2.2) and the
    bound eps = 6e-8, read from the paper's figure 8 at r = 7. The limit's ``scale`` is its value at that
    moment, so that MMA first sees it as a relative excess of about 1 (with the default scale, |eps|, it would
-   see an excess of thousands, and MMA's subproblem does not converge). 300 passes follow.
+   see an excess of thousands, far from the numbers of order one that MMA's constants are meant for). 300
+   passes follow.
 3. For the comparison, the same 300 passes at beta 32 run from the same x without the limit.
 
 The picture (default: docs/images/mbb_member_size.png) shows the beam without the limit above the beam with

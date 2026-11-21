@@ -62,6 +62,31 @@
 //!
 //! The step is shortened so that every positive variable keeps at least 1 % of its value
 //! (fraction to the boundary), and then halved until the norm of all residuals falls.
+//!
+//! The units of the limits. The Newton direction does not depend on the units in which each limit is
+//! written, but the two tests of the method do: the step is halved until the Euclidean norm of all the
+//! residuals falls (note, section 5.4), and epsilon is lowered once their largest falls below 0.9 epsilon
+//! (section 5.5). Both add r_lam_i, in the units of g_i, to r_x, in the units of the derivative of g_0.
+//! A limit whose approximation is far steeper than the goal's (a gradient a thousand times larger on some
+//! variables) is also sharply curved there, so a step that moves those variables changes its r_lam_i by
+//! far more than the linear model predicts. That one residual then decides the halving: the accepted
+//! step falls to a few hundredths of the Newton step or less, the solver advances by that fraction per
+//! step, and it runs out of steps. The note leaves the units of the problem to the user and asks for a
+//! well scaled one (section 2), so `solve` writes each limit in units in which it is no steeper than the
+//! goal before it starts. With omega_i > 0 the substitution
+//!
+//!   g_i -> omega_i g_i,  a_i -> omega_i a_i,  c_i -> c_i / omega_i,  d_i -> d_i / omega_i^2,
+//!   y_i -> omega_i y_i,  s_i -> omega_i s_i,  lambda_i -> lambda_i / omega_i,  mu_i -> mu_i / omega_i
+//!
+//! leaves every term of the subproblem's objective, the products lambda_i s_i and mu_i y_i, a . lambda and
+//! the conditions of the note's problem form (a_i c_i > a0 where a_i > 0) unchanged, and multiplies r_lam_i
+//! by omega_i and r_y_i by 1 / omega_i, leaving every other residual as it is. It is the same subproblem,
+//! with the same solution for every epsilon, and the same method applied to it, with the same Newton
+//! direction from any given point; only the starting point and the weight of those two residuals in the
+//! two tests change. The size of a function is the largest over j of the sum of the magnitudes of its two
+//! terms' derivatives, p_ij / (u_j - x_j)^2 + q_ij / (x_j - l_j)^2, at the starting point (positive,
+//! since every p_ij and q_ij is), and omega_i = min(1, size of g_0 / size of g_i): a limit no steeper
+//! than the goal is left as it is. The solution is returned in the caller's units.
 
 use crate::error::{EngineError, ErrorCode};
 
@@ -406,9 +431,70 @@ fn moved(point: &Point, step: &Point, t: f64) -> Point {
     }
 }
 
+/// The factor omega_i for each limit (see "The units of the limits" in the file header).
+fn limit_units(sub: &Subproblem<'_>) -> Vec<f64> {
+    let n = sub.n();
+    let start = sub.start();
+    let size = |p: &[f64], q: &[f64]| {
+        (0..n).fold(0.0_f64, |largest, j| {
+            let ux = sub.upper[j] - start.x[j];
+            let xl = start.x[j] - sub.lower[j];
+            largest.max(p[j] / (ux * ux) + q[j] / (xl * xl))
+        })
+    };
+    let goal = size(sub.p0, sub.q0);
+    (0..sub.m())
+        .map(|i| {
+            let limit = size(&sub.p[i * n..(i + 1) * n], &sub.q[i * n..(i + 1) * n]);
+            if limit > goal { goal / limit } else { 1.0 }
+        })
+        .collect()
+}
+
 /// Solves the subproblem. Returns `solver_not_converged` if one value of epsilon needs more than
 /// `NEWTON_STEPS_PER_EPSILON` Newton steps.
 pub fn solve(sub: &Subproblem<'_>) -> Result<Solution, EngineError> {
+    let omega = limit_units(sub);
+    if omega.iter().all(|&w| w == 1.0) {
+        return solve_in_given_units(sub);
+    }
+    let n = sub.n();
+    let scaled = |values: &[f64]| -> Vec<f64> {
+        values
+            .chunks(n)
+            .zip(&omega)
+            .flat_map(|(row, w)| row.iter().map(move |v| v * w))
+            .collect()
+    };
+    let p = scaled(sub.p);
+    let q = scaled(sub.q);
+    let r: Vec<f64> = sub.r.iter().zip(&omega).map(|(v, w)| v * w).collect();
+    let a: Vec<f64> = sub.a.iter().zip(&omega).map(|(v, w)| v * w).collect();
+    let c: Vec<f64> = sub.c.iter().zip(&omega).map(|(v, w)| v / w).collect();
+    let d: Vec<f64> = sub.d.iter().zip(&omega).map(|(v, w)| v / (w * w)).collect();
+    let solution = solve_in_given_units(&Subproblem {
+        p: &p,
+        q: &q,
+        r: &r,
+        a: &a,
+        c: &c,
+        d: &d,
+        ..*sub
+    })?;
+    Ok(Solution {
+        y: solution.y.iter().zip(&omega).map(|(v, w)| v / w).collect(),
+        lambda: solution
+            .lambda
+            .iter()
+            .zip(&omega)
+            .map(|(v, w)| v * w)
+            .collect(),
+        ..solution
+    })
+}
+
+/// The primal-dual method of the file header on the subproblem as given.
+fn solve_in_given_units(sub: &Subproblem<'_>) -> Result<Solution, EngineError> {
     let mut point = sub.start();
     let mut epsilon = EPSILON_START;
     loop {
@@ -560,6 +646,33 @@ mod tests {
         let solution = solve(&sub).unwrap();
         assert!((solution.x[0] - 1.5).abs() < 1e-8);
         assert!((solution.lambda[0] - 0.04).abs() < 1e-8);
+    }
+
+    /// The limit of the test above in units 10^4 times smaller: it is then far steeper than the goal and is
+    /// solved in other units (see the file header), but the design and the multiplier, in the caller's units,
+    /// are those of the KKT conditions.
+    #[test]
+    fn a_steep_limit_gives_the_design_and_multiplier_in_the_callers_units() {
+        let sub = Subproblem {
+            lower: &[-1.0],
+            upper: &[2.0],
+            alpha: &[-0.5],
+            beta: &[1.9],
+            p0: &[0.0],
+            q0: &[1.0],
+            p: &[1e4],
+            q: &[0.0],
+            r: &[-2e4],
+            a0: 1.0,
+            a: &[0.0],
+            c: &[1000.0],
+            d: &[1.0],
+        };
+        assert!(limit_units(&sub)[0] < 1e-3);
+        let solution = solve(&sub).unwrap();
+        assert!((solution.x[0] - 1.5).abs() < 1e-8);
+        assert!((solution.lambda[0] - 0.04e-4).abs() < 1e-12);
+        assert!(solution.y[0] < 1e-8);
     }
 
     #[test]

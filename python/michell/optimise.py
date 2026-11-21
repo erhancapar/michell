@@ -22,6 +22,7 @@ from typing import Protocol
 
 import numpy as np
 
+from michell._engine import EngineError
 from michell.designs import (
     design_chains,
     design_gradient,
@@ -125,37 +126,57 @@ def optimise(
     ``filters``; the goal and every limit must then name the design they read, with
     ``michell.on(name, response)``. Only the designs a goal or a limit reads are evaluated, and a design
     is solved only for the physics its responses read.
+
+    An ``EngineError`` raised on the way (by a solve, a filter or the optimiser) leaves ``optimise`` with
+    the attribute ``partial_result``: the ``Result`` of the passes completed before the error, that is
+    ``x`` after the last completed update, its ``density`` and ``designs``, and the records of those
+    passes (the starting ``x`` and no records if no pass was completed). It is ``None`` only when the
+    filters cannot be applied to that ``x`` either.
     """
     x = np.where(problem.grid.active == 1.0, np.asarray(x, dtype=np.float64), 0.0)
     chains = design_chains(designs)
     goal_design, goal_response = design_of(goal, chains)
     limit_parts = [design_of(limit.response, chains) for limit in limits]
     reads = reads_by_design([(goal_design, goal_response), *limit_parts], chains)
-    optimiser.start(problem, x, limits, filters)
     history = []
-    states = None  # per design, the warm start of the next pass's solves
-    for number in range(1, passes + 1):
-        base_fields, evaluated = evaluate_designs(problem, x, filters, chains, reads, start=states)
-        steps = {design: [ev.solver_steps] for design, (ev, _) in evaluated.items()}
 
-        def gradient(design, response):
-            return design_gradient(problem, response, design, filters, chains, base_fields, evaluated, steps[design])
+    def result() -> Result:
+        # The result of the passes completed so far: `x` after the last completed update, and its fields.
+        density = apply_filters(x, filters)[-1]
+        final = {} if designs is None else {name: apply_filters(density, chain)[-1] for name, chain in chains.items()}
+        return Result(x=x, density=density, passes=tuple(history), threads=problem.threads, designs=final)
 
-        goal_value = goal_response.value(evaluated[goal_design][0])
-        d_goal = gradient(goal_design, goal_response)
-        limit_values = [response.value(evaluated[design][0]) for design, response in limit_parts]
-        d_limits = [gradient(design, response) for design, response in limit_parts]
+    try:
+        optimiser.start(problem, x, limits, filters)
+        states = None  # per design, the warm start of the next pass's solves
+        for number in range(1, passes + 1):
+            base_fields, evaluated = evaluate_designs(problem, x, filters, chains, reads, start=states)
+            steps = {design: [ev.solver_steps] for design, (ev, _) in evaluated.items()}
 
-        x_new = optimiser.update(x, goal_value, d_goal, limit_values, d_limits)
-        change = float(np.abs(x_new - x).max())
-        solved = {design: sum(counts) for design, counts in steps.items() if reads[design]}
-        by_design = {} if designs is None else solved
-        total_steps = sum(sum(counts) for counts in steps.values())
-        history.append(Pass(number, goal_value, tuple(limit_values), change, total_steps, by_design))
-        x = x_new
-        states = {design: ev.states for design, (ev, _) in evaluated.items()}
-        if stop_change is not None and change <= stop_change:
-            break
-    density = apply_filters(x, filters)[-1]
-    final = {} if designs is None else {name: apply_filters(density, chain)[-1] for name, chain in chains.items()}
-    return Result(x=x, density=density, passes=tuple(history), threads=problem.threads, designs=final)
+            def gradient(design, response):
+                return design_gradient(
+                    problem, response, design, filters, chains, base_fields, evaluated, steps[design]
+                )
+
+            goal_value = goal_response.value(evaluated[goal_design][0])
+            d_goal = gradient(goal_design, goal_response)
+            limit_values = [response.value(evaluated[design][0]) for design, response in limit_parts]
+            d_limits = [gradient(design, response) for design, response in limit_parts]
+
+            x_new = optimiser.update(x, goal_value, d_goal, limit_values, d_limits)
+            change = float(np.abs(x_new - x).max())
+            solved = {design: sum(counts) for design, counts in steps.items() if reads[design]}
+            by_design = {} if designs is None else solved
+            total_steps = sum(sum(counts) for counts in steps.values())
+            history.append(Pass(number, goal_value, tuple(limit_values), change, total_steps, by_design))
+            x = x_new
+            states = {design: ev.states for design, (ev, _) in evaluated.items()}
+            if stop_change is not None and change <= stop_change:
+                break
+    except EngineError as error:
+        try:
+            error.partial_result = result()
+        except EngineError:
+            error.partial_result = None
+        raise
+    return result()

@@ -43,8 +43,8 @@
 //! f_i at x (the tests check this), and it is convex.
 //!
 //! Part 5. The subproblem (the approximations in place of f_i, x between alpha and beta) is solved by
-//! the primal-dual interior-point method of the 2007 note: see `mma_subproblem.rs`. Its x is the next
-//! design.
+//! the primal-dual interior-point method of the 2007 note: see `mma_subproblem.rs` (which also says in
+//! what units it writes each limit). Its x is the next design.
 //!
 //! The formulas and constants above were checked against the 2007 note. They are written from the
 //! method's definition in the two papers; no other program's code was used.
@@ -408,6 +408,83 @@ mod tests {
             assert!(x[0] + x[1] - 1.0 <= 1e-9);
         }
         assert!(x[0].abs() < 1e-6 && (x[1] - 1.0).abs() < 1e-6);
+    }
+
+    /// Many variables, a goal and a mass limit whose gradients are of the order 1/n, and a second limit
+    /// that is violated and is far steeper than the goal on a fifth of the variables (gradient -0.5,
+    /// thousands of times the goal's) and nearly flat elsewhere. The subproblem solver must reach its
+    /// tolerance (see "The units of the limits" in `mma_subproblem.rs`), and the new design must satisfy
+    /// the optimality conditions of the subproblem, checked here from the approximations themselves.
+    #[test]
+    fn a_violated_limit_far_steeper_than_the_goal_is_solved() {
+        let n = 20_000;
+        let spread = |j: usize, step: f64| (j as f64 * step) % 1.0;
+        let x: Vec<f64> = (0..n).map(|j| 0.15 + 0.7 * spread(j, 0.618_034)).collect();
+        let d_goal: Vec<f64> = (0..n)
+            .map(|j| -(0.5 + spread(j, 0.754_878)) / n as f64)
+            .collect();
+        let mut d_limits = vec![1.0 / n as f64; n];
+        d_limits.extend((0..n).map(|j| if j < n / 5 { -0.5 } else { 1e-9 }));
+        let limits = [0.0, 20.0];
+        let mut mma = Mma::new(vec![0.0; n], vec![1.0; n], 2).unwrap();
+        let new_x = match mma.update(&x, 1.0, &d_goal, &limits, &d_limits) {
+            Ok(new_x) => new_x,
+            Err(error) => panic!("the update failed: {error}"),
+        };
+
+        // The approximations of part 4 and the move limits of part 3, as the update built them.
+        let (lower, upper) = (mma.asymptotes().0.to_vec(), mma.asymptotes().1.to_vec());
+        let (p0, q0, _) = mma.approximation(&x, 1.0, &d_goal, &lower, &upper);
+        let mut terms = vec![];
+        for i in 0..2 {
+            let gradient = &d_limits[i * n..(i + 1) * n];
+            terms.push(mma.approximation(&x, limits[i], gradient, &lower, &upper));
+        }
+        let slope = |p: &[f64], q: &[f64], j: usize| {
+            p[j] / (upper[j] - new_x[j]).powi(2) - q[j] / (new_x[j] - lower[j]).powi(2)
+        };
+        // Both limits are met (y = 0: c = 1000 makes a violation far too dear here).
+        for (p, q, r) in &terms {
+            let value: f64 = r
+                + (0..n)
+                    .map(|j| p[j] / (upper[j] - new_x[j]) + q[j] / (new_x[j] - lower[j]))
+                    .sum::<f64>();
+            assert!(value <= 1e-8, "a limit is not met: {value}");
+        }
+        // Stationarity: on the variables strictly inside [alpha, beta] the slope of
+        // g_0 + lambda_1 g_1 + lambda_2 g_2 is zero, with multipliers lambda >= 0 fitted by least squares.
+        let inside: Vec<usize> = (0..n)
+            .filter(|&j| {
+                let alpha = (x[j] - 0.45).max(0.0);
+                let beta = (x[j] + 0.45).min(1.0);
+                new_x[j] - alpha > 1e-3 && beta - new_x[j] > 1e-3
+            })
+            .collect();
+        assert!(inside.len() > n / 2);
+        let g = |i: usize, j: usize| slope(&terms[i].0, &terms[i].1, j);
+        let (mut m00, mut m01, mut m11, mut b0, mut b1) = (0.0, 0.0, 0.0, 0.0, 0.0);
+        for &j in &inside {
+            let (g0, g1, g2) = (slope(&p0, &q0, j), g(0, j), g(1, j));
+            m00 += g1 * g1;
+            m01 += g1 * g2;
+            m11 += g2 * g2;
+            b0 -= g1 * g0;
+            b1 -= g2 * g0;
+        }
+        let det = m00 * m11 - m01 * m01;
+        let lambda = [(b0 * m11 - b1 * m01) / det, (m00 * b1 - m01 * b0) / det];
+        assert!(lambda[0] > 0.0 && lambda[1] > 0.0, "{lambda:?}");
+        // What is left is the barrier term epsilon / (x - alpha) of the solver's last epsilon.
+        let goal_slope = inside
+            .iter()
+            .fold(0.0_f64, |m, &j| m.max(slope(&p0, &q0, j).abs()));
+        for &j in &inside {
+            let stationarity = slope(&p0, &q0, j) + lambda[0] * g(0, j) + lambda[1] * g(1, j);
+            assert!(
+                stationarity.abs() < 1e-4 * goal_slope,
+                "variable {j}: {stationarity}"
+            );
+        }
     }
 
     #[test]

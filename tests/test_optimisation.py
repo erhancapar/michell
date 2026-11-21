@@ -6,7 +6,7 @@ import pytest
 import michell
 from michell import _engine
 from michell.adjoint import multiple_of_loads
-from michell.evaluation import evaluate
+from michell.evaluation import apply_filters, evaluate
 from michell.gradient_check import small_problem
 from michell.row import compared
 
@@ -181,3 +181,49 @@ def test_the_engine_oc_update_takes_the_filter_of_its_own_grid_only():
     with pytest.raises(michell.EngineError) as caught:
         oc.update(np.full(8, 0.5), -ones, ones, ones, 4.0, other)
     assert caught.value.code == "invalid_input"
+
+
+class FailingOnPass:
+    """MMA, except that on one pass it hands the engine a goal that is not a number, so the engine raises
+    there."""
+
+    name = "MMA failing on one pass"
+
+    def __init__(self, failing_pass):
+        self.mma = michell.MovingAsymptotes()
+        self.failing_pass = failing_pass
+        self.updates = []
+
+    def start(self, problem, x, limits, filters):
+        self.mma.start(problem, x, limits, filters)
+
+    def update(self, x, goal, d_goal, limits, d_limits):
+        if len(self.updates) + 1 == self.failing_pass:
+            goal = float("nan")
+        x_new = self.mma.update(x, goal, d_goal, limits, d_limits)
+        self.updates.append(x_new)
+        return x_new
+
+
+def test_an_engine_error_in_the_loop_carries_the_passes_completed_before_it():
+    problem, x, filters, limits = oc_inputs()
+    run = (problem, michell.Compliance(), limits, filters)
+    optimiser = FailingOnPass(3)
+    with pytest.raises(michell.EngineError) as caught:
+        michell.optimise(*run, optimiser, x, passes=10)
+    assert caught.value.code == "invalid_input"
+    partial = caught.value.partial_result
+    assert [p.number for p in partial.passes] == [1, 2]
+    np.testing.assert_array_equal(partial.x, optimiser.updates[-1])
+    np.testing.assert_array_equal(partial.density, apply_filters(partial.x, filters)[-1])
+    # The same as a run that stops after those two passes.
+    two_passes = michell.optimise(*run, michell.MovingAsymptotes(), x, passes=2)
+    assert partial.passes == two_passes.passes
+    np.testing.assert_array_equal(partial.x, two_passes.x)
+    np.testing.assert_array_equal(partial.density, two_passes.density)
+
+    with pytest.raises(michell.EngineError) as caught:
+        michell.optimise(*run, FailingOnPass(1), x, passes=10)
+    partial = caught.value.partial_result
+    assert partial.passes == ()
+    np.testing.assert_array_equal(partial.x, np.where(problem.grid.active == 1.0, x, 0.0))

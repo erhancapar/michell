@@ -15,7 +15,8 @@ class EngineError(Exception):
 
     ``code`` is stable (``invalid_input``, ``singular_system``, ``solver_not_converged``,
     ``internal_error``), ``message`` is for
-    people, ``details`` holds the numbers involved.
+    people, ``details`` holds the numbers involved. An ``EngineError`` that leaves ``michell.optimise``
+    also has ``partial_result``, the result of the passes completed before it (see ``optimise``).
     """
 
     code: str

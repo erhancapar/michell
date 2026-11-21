@@ -397,7 +397,7 @@ def row_26_thin_and_thick() -> list[Row]:
 #    "filtered" (an empty filter chain, so it reads the filtered field and is never solved):
 #    eta_e = member_threshold(filter, 7) = 0.780, c = r^4 = 2401 (section 2.2), eps = 6e-8 (figure 8 at
 #    r = 7), and the limit's `scale` set to its value at the switch (so that MMA first sees it as a relative
-#    excess of about 1; with the default scale |eps| MMA's subproblem does not converge);
+#    excess of about 1, not of about 1e3 as with the default scale |eps|; see `michell.Limit`);
 # 3. for the comparison, the same 300 passes at beta 32 from the same x without the limit.
 
 ROW_27_NX, ROW_27_NY = 180, 60

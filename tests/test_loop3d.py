@@ -2,6 +2,7 @@
 Helmholtz filter, and the 3D cantilever example (slow)."""
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -35,6 +36,20 @@ def test_the_problem_picks_the_analysis_from_the_grid():
     assert isinstance(problem.elasticity, michell.Elasticity3d)
     assert (problem.elasticity.threads, problem.elasticity.tolerance, problem.elasticity.max_steps) == (2, 1e-8, 200)
     assert problem.is_3d and problem.threads == 2
+
+
+def test_the_default_cap_is_5000_steps_and_a_solve_that_hits_it_names_the_usual_causes():
+    assert cantilever_3d().elasticity.max_steps == 5000
+    problem = cantilever_3d(nx=18, ny=8, nz=8, solver_tolerance=1e-12, solver_max_steps=2)
+    with pytest.raises(michell.EngineError) as caught:
+        problem.solve(np.ones(problem.grid.n_elements), problem.cases[0].loads)
+    error = caught.value
+    assert error.code == "solver_not_converged"
+    assert set(error.details) == {"steps", "relative_residual", "tolerance"} and error.details["steps"] == 2
+    reached = re.search(r"within 2 steps; it reached (\S+?)\. ", error.message)
+    assert reached and float(reached.group(1)) == error.details["relative_residual"]
+    assert "material that is not connected to the supports" in error.message
+    assert "a loaded piece that floats" in error.message
 
 
 @pytest.mark.parametrize("setting", [{"threads": 2}, {"solver_tolerance": 1e-8}, {"solver_max_steps": 100}])

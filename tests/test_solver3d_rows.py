@@ -53,6 +53,11 @@ def test_row_17_steps_on_a_0_and_1_design(case):
     assert_rows_pass(verification.row_17_design(case))
 
 
+@pytest.mark.parametrize("case", verification.ROW_17_DETACHED_CASES)
+def test_row_17_steps_with_detached_material_or_the_load_on_void(case):
+    assert_rows_pass(verification.row_17_detached(case))
+
+
 def test_row_18_cantilever_against_timoshenko_at_4_and_8_through_the_depth():
     assert_rows_pass(verification.row_18_cantilever((4, 8)))
 

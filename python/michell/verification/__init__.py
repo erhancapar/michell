@@ -63,8 +63,10 @@ from michell.verification.member_size_rows import (
 )
 from michell.verification.solver3d_rows import (
     ROW_16_CASES,
+    ROW_17_DETACHED_CASES,
     row_16_direct_solve,
     row_17_design,
+    row_17_detached,
     row_17_uniform,
     row_18_cantilever,
 )
@@ -98,6 +100,8 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_17_uniform()
     rows += row_17_design("lattice")
     rows += row_17_design("irregular")
+    for case in ROW_17_DETACHED_CASES:
+        rows += row_17_detached(case)
     rows += row_18_cantilever()
     rows += row_19_gradients()
     rows += row_20_filter()
@@ -123,6 +127,7 @@ __all__ = [
     "REFERENCE_CODE",
     "REPEATABILITY",
     "ROW_16_CASES",
+    "ROW_17_DETACHED_CASES",
     "Row",
     "all_rows",
     "row_1_element_matrix",
@@ -143,6 +148,7 @@ __all__ = [
     "row_16_direct_solve",
     "row_17_uniform",
     "row_17_design",
+    "row_17_detached",
     "row_18_cantilever",
     "row_19_gradients",
     "row_20_filter",

@@ -15,6 +15,16 @@ taking its share of the face's area (a half on an edge, a quarter at a corner). 
   from 40 % up for which that group reaches the loaded slab: near 40 % a field like this one is close to
   the share at which its solid first joins across the block, so a fixed 40 % joins the two slabs at some
   sizes and not at others;
+- **islands**: the irregular design with four detached islands of solid, cubes of 2 x 2 x 2 elements in the
+  void, joined to the rest only through E_min. Each sits in the middle of a block of 4 x 4 x 4 void elements
+  none of which is within two face steps of the irregular design's solid; the blocks are taken in element
+  order (x fastest) over the corners 3 <= i < nx - 7, 1 <= j < ny - 4, 1 <= k < nz - 4, each one more than 8
+  elements in x, or more than 6 in y or in z, from every block taken before it;
+- **load on void**: the irregular design with its load moved onto void: 1 N in -z spread equally over a
+  3 x 3 patch of nodes in a plane x = const. The patch is the first, in element order over the corners
+  nx / 2 <= i < nx - 3, 1 <= j < ny - 3, 1 <= k < nz - 3, for which every element of the 4 x 4 x 4 block with
+  corner (i - 1, j - 1, k - 1) is void and shares no face with solid; the patch's nodes are (i + 1, j + a,
+  k + b) for a and b from 0 to 2, so every element they touch lies in that block;
 - **L-shaped**: a block with odd counts in every direction, a corner block removed so that the active region
   is an L, all at density 1, held on a support patch on the far face x = nx that ends one node short of the
   odd edge y = ny, loaded on the face x = 0. In a direction with an odd count the last coarse multigrid node
@@ -164,6 +174,62 @@ def irregular(shape: tuple[int, int, int]) -> tuple[SetUp, bool]:
     rho, percent, joined = irregular_design(shape)
     text = f"irregular, cut at {percent} %, {rho.mean():.0%} solid in one face-joined group"
     return cantilever(shape, rho, text), joined
+
+
+def grown(solid: np.ndarray, steps: int) -> np.ndarray:
+    """``solid`` (nz x ny x nx) grown by ``steps`` face steps."""
+    out = solid.copy()
+    for _ in range(steps):
+        g = out.copy()
+        g[1:] |= out[:-1]
+        g[:-1] |= out[1:]
+        g[:, 1:] |= out[:, :-1]
+        g[:, :-1] |= out[:, 1:]
+        g[:, :, 1:] |= out[:, :, :-1]
+        g[:, :, :-1] |= out[:, :, 1:]
+        out = g
+    return out
+
+
+def islands(shape: tuple[int, int, int]) -> tuple[SetUp, int]:
+    """The irregular design with four detached solid islands, and the number of islands placed (fewer than
+    four if the void has no room for them)."""
+    nx, ny, nz = shape
+    base, _ = irregular(shape)
+    solid = base.rho.reshape(nz, ny, nx) > 0.5
+    near = grown(solid, 2)
+    corners: list[tuple[int, int, int]] = []
+    for k in range(1, nz - 4):
+        for j in range(1, ny - 4):
+            for i in range(3, nx - 7):
+                if near[k : k + 4, j : j + 4, i : i + 4].any():
+                    continue
+                if all(abs(i - a) > 8 or abs(j - b) > 6 or abs(k - c) > 6 for a, b, c in corners):
+                    corners.append((i, j, k))
+    rho = base.rho.reshape(nz, ny, nx).copy()
+    for i, j, k in corners[:4]:
+        rho[k + 1 : k + 3, j + 1 : j + 3, i + 1 : i + 3] = 1.0
+    placed = min(len(corners), 4)
+    text = f"{base.description}, with {placed} detached islands of 2 x 2 x 2 solid elements in the void"
+    return SetUp(base.grid, base.held, base.loads, rho.ravel(), text), placed
+
+
+def load_on_void(shape: tuple[int, int, int]) -> SetUp | None:
+    """The irregular design with its load on a patch of void nodes; None if no patch qualifies."""
+    nx, ny, nz = shape
+    base, _ = irregular(shape)
+    clear = ~grown(base.rho.reshape(nz, ny, nx) > 0.5, 1)
+    for k in range(1, nz - 3):
+        for j in range(1, ny - 3):
+            for i in range(nx // 2, nx - 3):
+                if clear[k - 1 : k + 3, j - 1 : j + 3, i - 1 : i + 3].all():
+                    loads = np.zeros(base.grid.n_dofs)
+                    for b in range(3):
+                        for a in range(3):
+                            loads[3 * base.grid.node(i + 1, j + a, k + b) + 2] = -1.0 / 9
+                    text = f"{base.description}, loaded on a 3 x 3 patch of void nodes at x = {i + 1}"
+                    return SetUp(base.grid, base.held, loads, base.rho, text)
+    return None
 
 
 def l_shaped(shape: tuple[int, int, int]) -> SetUp:

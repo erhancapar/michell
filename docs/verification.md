@@ -61,6 +61,8 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 17 | 3D solver steps on a uniform cantilever at growing sizes | convergence | 20 | ≤ 30 | pass | largest step count; 24 x 12 x 12: 18 steps, 55 products; 48 x 24 x 24: 19 steps, 58 products; 96 x 48 x 48: 20 steps, 61 products; largest over smallest 1.11 (limit 1.5): within |
 | 17 | 3D solver steps on the lattice 0-and-1 design, 48 x 24 x 24 | convergence | 92 | ≤ 300 | pass | lattice of bars, 22% solid; 277 products with the fine stiffness matrix |
 | 17 | 3D solver steps on the irregular 0-and-1 design, 48 x 24 x 24 | convergence | 131 | ≤ 600 | pass | irregular, cut at 41 %, 45% solid in one face-joined group; 394 products with the fine stiffness matrix |
+| 17 | 3D solve on a design with detached islands, 48 x 24 x 24, to 1e-6 | convergence | 555 | ≤ 5000 | pass | steps; irregular, cut at 41 %, 45% solid in one face-joined group, with 4 detached islands of 2 x 2 x 2 solid elements in the void; 1666 products with the fine stiffness matrix, relative residual 9.09e-07; 497 steps when started from the solution of the irregular design with its own load, which itself takes 110 steps |
+| 17 | 3D solve with the load on void, 48 x 24 x 24, to 1e-6 | convergence | 113 | ≤ 5000 | pass | steps; irregular, cut at 41 %, 45% solid in one face-joined group, loaded on a 3 x 3 patch of void nodes at x = 34; 340 products with the fine stiffness matrix, relative residual 8.54e-07; 113 steps when started from the solution of the irregular design with its own load, which itself takes 110 steps |
 | 18 | 3D cantilever, length 8 x depth, square section: deflection against Timoshenko beam theory | closed form | 0.0112 | < 0.02 | pass | relative error with 16 elements through the depth; with 4, 8, 16: 0.0451, 0.0186, 0.0112; the error must also shrink: it does |
 | 19 | Gradient of compliance through the Helmholtz filter in 3D against central differences | gradient | 5.95e-08 | ≤ 1e-05 | pass | 120 elements of a 3D block with an inactive pocket, two load cases, random density, solves at 1e-12; largest difference relative to the gradient's size; worst element on its own scale 3.33e-07 (reported, not judged) |
 | 19 | Gradient of mass through the Helmholtz filter in 3D against central differences | gradient | 3.25e-08 | ≤ 1e-05 | pass | 120 elements of a 3D block with an inactive pocket, two load cases, random density, solves at 1e-12; largest difference relative to the gradient's size; worst element on its own scale 3.25e-08 (reported, not judged) |
@@ -96,7 +98,7 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 27 | MBB beam 180 x 60 with the member-size limit: the limit met at the end, largest g / (1.1 bound) over three runs | property of the design | 0.909 | ≤ 1 | pass | the same three runs, g / bound 1, 0.999, 1; the limit's bound eps is read off a figure and met only to the optimiser's accuracy |
 | 27 | MBB beam 180 x 60 without the member-size limit: share removed by the same opening at least 10 % | property of the design | 0.679 | ≤ 1 | pass | measured 0.1 / share, share 14.7 %, twice the 5 % limit: the limit has work to do |
 
-70 passed, 0 failed, 0 not run.
+72 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 

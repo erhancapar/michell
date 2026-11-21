@@ -135,7 +135,8 @@ pub fn solve(
     }
     Err(not_converged(
         &format!(
-            "the solver did not reach the relative residual {tolerance:e} within {max_steps} steps"
+            "the solver did not reach the relative residual {tolerance:e} within {max_steps} steps; \
+             it reached {relative_residual:e}"
         ),
         max_steps,
         relative_residual,

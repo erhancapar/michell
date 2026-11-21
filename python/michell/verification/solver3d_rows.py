@@ -10,10 +10,21 @@ from __future__ import annotations
 
 import numpy as np
 
+from michell import EngineError
 from michell.analysis3d import Elasticity3d
 from michell.row import CLOSED_FORM, CONVERGENCE, INDEPENDENT_COMPUTATION, Row, checked, g3, not_run
 from michell.verification.analysis3d_rows import assembled_matrix
-from michell.verification.designs3d import E, E_MIN_RATIO, NU, irregular, l_shaped, lattice, uniform
+from michell.verification.designs3d import (
+    E,
+    E_MIN_RATIO,
+    NU,
+    irregular,
+    islands,
+    l_shaped,
+    lattice,
+    load_on_void,
+    uniform,
+)
 
 ROW_THREADS = 4
 
@@ -185,6 +196,49 @@ def row_17_design(case: str, shape: tuple[int, int, int] = ROW_17_DESIGN_SHAPE) 
         return [Row(17, name, CONVERGENCE, None, limit, False, f"set-up not usable: {unusable}")]
     report = steps_to_1e_8(setup)
     note = f"{setup.description}; {report['products']} products with the fine stiffness matrix"
+    return [checked(17, name, CONVERGENCE, report["steps"], limit, note)]
+
+
+# Row 17, detached material. Limit: on the islands design and on the load-on-void design of ``designs3d`` at
+# 48 x 24 x 24, the solve reaches the default relative residual of ``Problem`` (1e-6) within its default
+# cap of 5000 steps. The note gives, for comparison, the steps of the irregular design itself with its own
+# load and the steps when the solve starts from that design's solution.
+
+ROW_17_DETACHED_CASES = ("islands", "load on void")
+ROW_17_DETACHED_LIMIT = 5000
+
+
+def row_17_detached(case: str, shape: tuple[int, int, int] = ROW_17_DESIGN_SHAPE) -> list[Row]:
+    """Row 17 on the ``islands`` or the ``load on void`` design."""
+    title = {"islands": "on a design with detached islands", "load on void": "with the load on void"}[case]
+    name = f"3D solve {title}, {shape[0]} x {shape[1]} x {shape[2]}, to 1e-6"
+    limit = ROW_17_DETACHED_LIMIT
+    if case == "islands":
+        setup, placed = islands(shape)
+        unusable = None if placed == 4 else f"only {placed} islands fit in the void"
+    else:
+        setup = load_on_void(shape)
+        unusable = None if setup is not None else "no patch of void nodes qualifies"
+    if unusable is not None:
+        return [Row(17, name, CONVERGENCE, None, limit, False, f"set-up not usable: {unusable}")]
+    joined, _ = irregular(shape)
+    model = model_for(joined, 1e-6, limit)
+    u_joined = model.solve(joined.rho, joined.loads)
+    joined_steps = model.last_solve_report()["steps"]
+    try:
+        model.solve(setup.rho, setup.loads)
+    except EngineError as error:
+        if error.code != "solver_not_converged":
+            raise
+        return [Row(17, name, CONVERGENCE, None, limit, False, f"{setup.description}; {error.message}")]
+    report = model.last_solve_report()
+    model.solve(setup.rho, setup.loads, start=u_joined)
+    warm = model.last_solve_report()["steps"]
+    note = (
+        f"steps; {setup.description}; {report['products']} products with the fine stiffness matrix, relative "
+        f"residual {g3(report['relative_residual'])}; {warm} steps when started from the solution of the "
+        f"irregular design with its own load, which itself takes {joined_steps} steps"
+    )
     return [checked(17, name, CONVERGENCE, report["steps"], limit, note)]
 
 

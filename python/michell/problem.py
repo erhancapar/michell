@@ -57,7 +57,12 @@ class Problem:
     ``threads`` (the number of threads every solve runs on), ``solver_tolerance`` (the relative residual at
     which a solve stops) and ``solver_max_steps`` (the steps allowed before ``solver_not_converged``) are
     settings of the 3D analysis; on a 2D grid they must keep their defaults, since the direct solver has
-    none of them.
+    none of them. A solve of a design whose solid is joined to the supports takes tens of steps, about a
+    hundred on an intricate 0-and-1 design; solid joined to the rest only through void (detached islands,
+    whose stiffness is ``e_min``) raises the count by a large factor (verification row 17 gives the
+    counts), and the default of 5000 leaves room for that. A load on void alone does not (same row).
+    ``solver_not_converged`` names the steps made, the residual reached and the usual cause: material not
+    connected to the supports.
     """
 
     def __init__(
@@ -71,7 +76,7 @@ class Problem:
         e_min: float | None = None,
         threads: int = 1,
         solver_tolerance: float = 1e-6,
-        solver_max_steps: int = 500,
+        solver_max_steps: int = 5000,
     ):
         names = [case.name for case in cases]
         if len(set(names)) != len(names):
@@ -104,7 +109,7 @@ class Problem:
                 for name, value, default in (
                     ("threads", threads, 1),
                     ("solver_tolerance", solver_tolerance, 1e-6),
-                    ("solver_max_steps", solver_max_steps, 500),
+                    ("solver_max_steps", solver_max_steps, 5000),
                 )
                 if value != default
             }

@@ -31,7 +31,7 @@
 //! not depend on the density: every active element keeps a modulus of at least E_min > 0.
 
 use crate::conjugate_gradient::{self, SolveReport};
-use crate::error::EngineError;
+use crate::error::{DetailValue, EngineError, ErrorCode};
 use crate::grid3d::Grid3d;
 use crate::held_check::check_held;
 use crate::hex8;
@@ -446,7 +446,8 @@ impl Elasticity3d {
             &mut x,
             self.tolerance,
             self.max_steps,
-        )?;
+        )
+        .map_err(|error| self.name_the_usual_cause(error))?;
         report.products += cycles * multigrid.fine_products_per_cycle();
         for dof in 0..n_dofs {
             if self.fixed[dof] {
@@ -454,6 +455,35 @@ impl Elasticity3d {
             }
         }
         Ok((x, report))
+    }
+
+    /// A solve that used up its `max_steps` with a finite residual gets the usual cause added to its
+    /// message; its code and details stay as they are.
+    fn name_the_usual_cause(&self, mut error: EngineError) -> EngineError {
+        let detail = |name: &str| {
+            error
+                .details
+                .iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        };
+        let used_up = match detail("steps") {
+            Some(DetailValue::Integer(steps)) => usize::try_from(steps) == Ok(self.max_steps),
+            _ => false,
+        };
+        let finite = match detail("relative_residual") {
+            Some(DetailValue::Number(residual)) => residual.is_finite(),
+            _ => false,
+        };
+        if error.code == ErrorCode::SolverNotConverged && used_up && finite {
+            error.message.push_str(
+                ". The usual cause is material that is not connected to the supports: solid joined to the \
+                 rest only through void, whose stiffness is e_min (detached islands, or a loaded piece \
+                 that floats); check the density for it, or allow more steps (max_steps; \
+                 solver_max_steps on a Problem)",
+            );
+        }
+        error
     }
 
     /// a_e^T K_unit b_e for one element.
@@ -675,6 +705,9 @@ mod tests {
         let short = Elasticity3d::new(grid, unit_material(), held, 1e-8, 2, 1).unwrap();
         let error = short.solve(&rho, &loads, None, None).unwrap_err();
         assert_eq!(error.code, ErrorCode::SolverNotConverged);
+        assert!(error.message.contains("within 2 steps; it reached "));
+        assert!(error.message.contains("not connected to the supports"));
+        assert!(error.message.contains("a loaded piece that floats"));
     }
 
     /// The V-cycle of `model` for `rho`, applied to `r`.

@@ -50,6 +50,12 @@ impl HelmholtzFilter {
         self.inner.length()
     }
 
+    /// The side of one element of the grid the filter was built on, mm.
+    #[getter]
+    fn element_size(&self) -> f64 {
+        self.inner.element_size()
+    }
+
     /// The relative residual at which a solve stops.
     #[getter]
     fn tolerance(&self) -> f64 {

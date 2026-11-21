@@ -16,7 +16,10 @@ properties and a 1D closed form. Row 21 checks the projection, row 22 the gradie
 formulation (several designs from one set of variables) in 3D, and row 23 runs the robust MBB beam and
 checks the mass, the discreteness and the order of the compliances of its three designs. Row 24 compares
 the 3D analysis with CalculiX on the same voxels; it reads CalculiX's numbers from
-``tests/reference/calculix`` and reports "not run" when they are absent.
+``tests/reference/calculix`` and reports "not run" when they are absent. Row 25 checks the density filter
+on a 3D grid against a direct computation and the derivative of the member-size limit against finite
+differences, row 26 checks that the limit tells a thin member from a thick one, and row 27 runs an MBB
+beam with the limit and measures its members by a morphological opening (SciPy; "not run" without it).
 """
 
 from __future__ import annotations
@@ -52,6 +55,12 @@ from michell.verification.analysis_rows import (
 from michell.verification.calculix_rows import row_24_calculix
 from michell.verification.filter3d_rows import row_19_gradients, row_20_filter
 from michell.verification.mbb import MBB_CASES
+from michell.verification.member_size_rows import (
+    row_25_filter,
+    row_25_member_size_gradients,
+    row_26_thin_and_thick,
+    row_27_member_size_mbb,
+)
 from michell.verification.solver3d_rows import (
     ROW_16_CASES,
     row_16_direct_solve,
@@ -65,7 +74,7 @@ from michell.verification.robust_rows import row_21_projection, row_22_robust_gr
 
 
 def all_rows(reference: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 24 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
+    """Runs rows 1 to 27 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
     the repository: ``tests/reference``)."""
     rows = []
     rows += row_1_element_matrix()
@@ -96,6 +105,10 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_22_robust_gradients()
     rows += row_23_robust_mbb()
     rows += row_24_calculix(reference)
+    rows += row_25_filter()
+    rows += row_25_member_size_gradients()
+    rows += row_26_thin_and_thick()
+    rows += row_27_member_size_mbb()
     return rows
 
 
@@ -137,4 +150,8 @@ __all__ = [
     "row_22_robust_gradients",
     "row_23_robust_mbb",
     "row_24_calculix",
+    "row_25_filter",
+    "row_25_member_size_gradients",
+    "row_26_thin_and_thick",
+    "row_27_member_size_mbb",
 ]

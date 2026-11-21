@@ -2,8 +2,8 @@
 
 Status: design note, kept in step with the code. The interface, the `Compliance` and `Mass` responses, the
 optimisation loop on a 2D or a 3D grid (a `Problem` picks the analysis from the grid's type), the density
-filter (2D), the Helmholtz filter (3D), the projection (both), several designs from one set of variables
-with the robust set, and both optimisers below exist.
+filter (2D and 3D), the Helmholtz filter (3D), the projection (both), several designs from one set of
+variables with the robust set, the minimum member size as a limit, and both optimisers below exist.
 
 ## The picture
 
@@ -79,8 +79,28 @@ class Filter(Protocol):
     def self_test(self) -> Sequence[Row]: ...
 ```
 
-Filters are applied in the order the problem file lists them. The density filter (cone weights, 2D), the
-Helmholtz filter (a PDE filter, 3D), the projection and symmetry are built into the engine; a manufacturing rule such as "no overhang steeper than 45 degrees" is one more filter.
+Filters are applied in the order the problem file lists them. The density filter (cone weights, 2D and 3D),
+the Helmholtz filter (a PDE filter, 3D), the projection and symmetry are built into the engine; a manufacturing rule such as "no overhang steeper than 45 degrees" is one more filter.
+
+What lies beyond a face of the grid is part of the model, and the density filter states it:
+`DensityFilter(grid, radius, threads=1, *, outside="closed", inactive="closed")`, with `outside` one word for
+every face or a mapping by face (`"x-"`, `"x+"`, `"y-"`, `"y+"`, and in 3D `"z-"`, `"z+"`; faces left out are
+closed). A closed face (the default) averages over the elements inside the grid only, so it acts like a mirror:
+right for a symmetry plane, and for a face that continues into a wall or a support. An empty face keeps the
+weights that fall beyond it in each average with a density of 0, as if void elements lay there: right for a
+free face of the part. `inactive` makes the same choice for the inactive elements. A uniform field stays
+uniform only next to closed faces and closed inactive elements. The padding is seen by the filter alone: the
+analysis, the mass and the limits are taken over the grid, so an element at a corner of two empty faces can
+never become solid (it reaches about a third of the full density), and a support or a load there needs
+solid elements around it. This is the boundary padding of the filter discussed by Clausen and
+Andreassen ("On filter boundary conditions in topology optimization", Struct. Multidisc. Optim. 56, 2017),
+not their domain extension, which extends the analysis too. The Helmholtz filter's zero-flux boundary acts
+like a closed face everywhere.
+
+Supports and load points need solid material around them when the filter's faces are empty (Clausen and
+Andreassen 2017, section 3.3): `KeepSolid(mask, grid=None)` is the filter that provides it, setting the marked
+elements to 1 at the end of a design's chain, after the projection (`designs={"nominal": [projection,
+KeepSolid(pad)]}`), with a zero gradient for them.
 
 ## Several designs from one set of variables
 
@@ -116,6 +136,54 @@ x  ->  filters  ->  rho  -+->  design filters of "eroded"   ->  rho_eroded   -> 
   on `dilated`, the heaviest; its bound is rescaled between continuation steps so that `nominal` meets the
   asked mass (the rule as stated by Kumar and Langelaar, Mech. Mach. Theory, 2022). Continuation (raising `beta`) and that rescaling are a loop over
   `beta` in the user's script that calls `optimise` again from the last x; the library holds no schedule.
+
+## The minimum member size: a limit on the filtered design
+
+`MemberSize` is the geometric constraint on the solid phase of Zhou, Lazarov, Wang and Sigmund ("Minimum
+length scale in topology optimization by geometric constraints", Comput. Methods Appl. Mech. Engrg. 293,
+2015, eqs. 8, 10 and 12):
+
+$$g = \frac{1}{n} \sum_e \bar\rho_e\, e^{-c\,|\nabla \tilde\rho|_e^2} \left[\min(\tilde\rho_e - \eta_e,\ 0)\right]^2 \le \varepsilon .$$
+
+Inside every solid member the filtered field $\tilde\rho$ has a ridge, where its gradient vanishes; the
+exponential picks out those ridges on the solid ($\bar\rho$ is the projected field), and the limit asks
+the filtered field to reach $\eta_e$ there. `member_threshold(filter, size)` gives $\eta_e$ for a wanted
+member size: the filtered value at the middle of an infinite plate (3D) or strip (2D) of that thickness,
+which a thinner member cannot reach. The gradient is taken per element side between neighbouring active
+elements, and $c = (R / h)^4$ by default, the paper's choice for a filter radius of $R / h$ elements.
+
+It is an ordinary response that reads no physics. It must see the filtered field, so it is read on a
+design whose own filter chain is empty, beside the design the goal reads; that design is never solved:
+
+```python
+designs = {"filtered": [], "nominal": [projection]}
+goal = on("nominal", Compliance())
+limits = [Limit(on("nominal", Mass()), at_most=m),
+          Limit(on("filtered", MemberSize(density_filter, projection, member_threshold(density_filter, size))),
+                at_most=eps, scale=value_at_switch)]
+```
+
+No change to the loop or the interface was needed. Two things are left to the user's script, in the open,
+as the paper prescribes: the limit is switched on only after a topology has formed without it, at a high,
+fixed sharpness of the projection (one more call of `optimise`); and its bound $\varepsilon$ is taken from
+the paper's figure 8 for the filter radius in elements (about 5.5e-8 at 8 elements). Such a bound lies far
+below the values the limit takes when it is switched on (of the order of 1e-4), so the limit's `scale` is
+set to its value at the switch (see "Goal, limits and the optimiser"). `examples/mbb_beam_member_size.py`
+writes the whole procedure out, and verification row 27 runs it.
+
+- **Supported with the density filter**, the cone filter of the paper (rows 25 to 27).
+- **Experimental with the Helmholtz filter** (`MemberSize.experimental` is then true): the paper derives
+  $c$ and its values of $\varepsilon$ for the cone filter only, and no row checks the pair.
+- **Free faces should be empty** (`outside` of the density filter, above). A closed face acts like a mirror,
+  so a member lying along it looks to the filter like one twice as wide, and the limit holds it to about half
+  the size: a strip 0.75 times the size thick gives g = 1e-16 against a closed face, and more than 10000
+  eps against an empty face, as in the interior (row 26). At a symmetry plane the mirror is right. The
+  limit's gradient is taken inside the grid, one-sided at a face, whichever the face's choice.
+- **Scope:** the limit is switched on after a layout has formed and reshapes its members; where the asked
+  size cannot be reached without changing the layout, it does not get there (trials on the MBB beam of row
+  27 at a mass fraction of 0.3 with sizes of 7 and 8 elements missed the bound by a factor of 2 to 3, at a
+  compliance several times higher), so a run must check that the bound is met.
+- Only the solid phase is built; the paper's constraint on holes (the void phase) is not.
 
 ## Two small examples
 
@@ -160,8 +228,10 @@ Two optimisers implement it: the classic optimality-criteria update (`Optimality
 reproduce the published 88-line result; it measures the limit on the filtered field inside its bisection, so it
 takes only the 2D density filter, on a 2D grid) and the method of moving asymptotes (`MovingAsymptotes`: any
 number of limits, any filter, 2D or 3D). MMA's constants are absolute numbers, so `MovingAsymptotes` hands it the goal divided by its value at
-the first pass and each limit as its relative excess over its bound, `(value - at_most) / |at_most|`; both
-scales stay fixed for the run. The goal's value first reaches the optimiser in `update`, so its scale is taken
+the first pass and each limit as `(value - at_most) / scale`, with the limit's `scale`: by default
+`|at_most|`, the relative excess over the bound; a limit whose bound is far below the values it takes before
+it is met (the member-size limit) is given a larger scale, `Limit(..., scale=...)`. Both scales stay fixed
+for the run. The goal's value first reaches the optimiser in `update`, so its scale is taken
 there, not in `start`.
 
 ## What every module must bring, and what it gets for free

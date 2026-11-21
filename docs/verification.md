@@ -1,20 +1,25 @@
 # Verification
 
-This table checks the 2D and the 3D analysis, the 2D and the 3D optimisation, the Helmholtz filter and the
-projection against closed-form solutions, against an exact integration and an independent assembly of the 3D
-stiffness matrix, against a sparse direct solution of the 3D system, against central finite differences,
-against the published 88-line topology optimisation code (Andreassen et al., Struct. Multidisc. Optim. 43,
-2011, run in GNU Octave; see `tests/reference/top88/PROVENANCE.txt`), against published optima (Svanberg,
-Int. J. Numer. Meth. Eng. 24, 1987) and against the finite-element program CalculiX on the same voxels (see
-`tests/reference/calculix/PROVENANCE.txt`); it also runs the 3D analysis and the Helmholtz filter on several thread
-counts and twice in a row and compares the numbers, counts the steps the 3D solver takes, and checks the three
+This table checks the 2D and the 3D analysis, the 2D and the 3D optimisation, the density filter on a 3D grid,
+the Helmholtz filter, the projection and the member-size limit against closed-form solutions, against an exact
+integration and an independent assembly of the 3D stiffness matrix, against a sparse direct solution of the 3D
+system, against central finite differences, against the published 88-line topology optimisation code
+(Andreassen et al., Struct. Multidisc. Optim. 43, 2011, run in GNU Octave; see
+`tests/reference/top88/PROVENANCE.txt`), against published optima (Svanberg, Int. J. Numer. Meth. Eng. 24,
+1987) and against the finite-element program CalculiX on the same voxels (see
+`tests/reference/calculix/PROVENANCE.txt`); it also runs the 3D analysis and the filters on several thread
+counts and twice in a row and compares the numbers, counts the steps the 3D solver takes, checks the three
 designs of a robust optimisation (Wang, Lazarov and Sigmund, Struct. Multidisc. Optim. 43, 2011) for their
 mass, their discreteness (the measure of Sigmund, Struct. Multidisc. Optim. 33, 2007) and the order of their
-compliances. The measure, the set-up and the limit of every row were fixed before its first result was
-computed; a limit is never changed to make a row pass. Every limit is an upper bound on the measured value.
-Measured values are rounded to three significant digits; values at the level of floating-point round-off may
-differ in those digits from one machine to another. The code of every row, with its set-up, is in
-`python/michell/verification/`, and continuous integration runs every row on each change.
+compliances, and checks the minimum member size as a limit (Zhou, Lazarov, Wang and Sigmund, Comput. Methods
+Appl. Mech. Engrg. 293, 2015) on thin and thick members and on an optimised beam, whose members it measures by
+a morphological opening. The measure, the set-up and the limit of every row were fixed before its first result
+was computed, with one exception, stated in its note: in row 27 the measure and its 5 % limit were fixed before
+any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
+were set after trial runs. Every limit is an upper bound on the measured value. Measured values are rounded
+to three significant digits; values at the level of floating-point round-off may differ in those digits from
+one machine to another. The code of every row, with its set-up, is in `python/michell/verification/`, and
+continuous integration runs every row on each change.
 
 Version: michell 0.0.1 (engine 0.0.1).
 
@@ -48,7 +53,7 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 13 | 3D pure shear in the zx plane: shear stress equal to G gamma, other components zero | closed form | 3.12e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (8.8e-16) and the other five components (3.12e-15); 4 x 4 x 4 elements |
 | 13 | 3D pure shear in the xy plane: shear stress equal to G gamma, other components zero | closed form | 1.09e-15 | ≤ 1e-08 | pass | relative to G gamma, the larger of the shear stress error (5.28e-16) and the other five components (1.09e-15); 4 x 4 x 4 elements |
 | 14 | 3D matrix-free product K(rho) x against the matrix assembled with SciPy | independent computation | 4.59e-16 | ≤ 1e-12 | pass | largest entry difference relative to the largest entry; 7 x 5 x 3 elements, 12 outside the part, random densities, 114 held degrees of freedom |
-| 15 | 3D analysis and Helmholtz filter give the same numbers on 1, 2, 5 and 12 threads and on a repeated run | repeatability | 0 | ≤ 0 | pass | largest absolute difference from the run on 1 thread, over the product, a complete solve (24 steps to 1e-10: displacements, final residual, step count) the strain energy, sensitivity and stress of its solution, and the Helmholtz filter forward and backward; every array also compared byte for byte; 19 x 15 x 15 elements, 15360 degrees of freedom (15 blocks of a sum), 450 outside the part, random densities, held displacements |
+| 15 | 3D analysis, Helmholtz filter and density filter give the same numbers on 1, 2, 5 and 12 threads and on a repeated run | repeatability | 0 | ≤ 0 | pass | largest absolute difference from the run on 1 thread, over the product, a complete solve (24 steps to 1e-10: displacements, final residual, step count) the strain energy, sensitivity and stress of its solution, and the Helmholtz filter and the density filter forward and backward; every array also compared byte for byte; 19 x 15 x 15 elements, 15360 degrees of freedom (15 blocks of a sum), 450 outside the part, random densities, held displacements |
 | 16 | 3D solver against a sparse direct solution: uniform, 50 x 20 x 20 | independent computation | 4.97e-12 | ≤ 1e-07 | pass | \|u - u_direct\| / \|u_direct\|; uniform density 1; 3 multigrid levels, 0 coarsest degrees of freedom left out, 24 steps to 1e-10; largest entry difference over the largest entry 4.81e-12 |
 | 16 | 3D solver against a sparse direct solution: lattice, 50 x 20 x 20 | independent computation | 1.15e-11 | ≤ 1e-07 | pass | \|u - u_direct\| / \|u_direct\|; lattice of bars, 25% solid; 3 multigrid levels, 0 coarsest degrees of freedom left out, 57 steps to 1e-10; largest entry difference over the largest entry 1.08e-11 |
 | 16 | 3D solver against a sparse direct solution: irregular, 50 x 20 x 20 | independent computation | 2.34e-09 | ≤ 1e-07 | pass | \|u - u_direct\| / \|u_direct\|; irregular, cut at 40 %, 44% solid in one face-joined group; 3 multigrid levels, 0 coarsest degrees of freedom left out, 112 steps to 1e-10; largest entry difference over the largest entry 2.41e-09 |
@@ -70,8 +75,28 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 23 | Robust MBB beam 120 x 40: non-discreteness of the nominal design, sum 4 rho (1 - rho) / n | property of the design | 0.0131 | ≤ 0.1 | pass | over all 4800 elements (Sigmund 2007); MBB beam 120 x 40, density filter radius 4.8, spread 0.25, beta 1 to 32 doubling every 50 passes (300 passes), MMA |
 | 23 | Robust MBB beam 120 x 40: compliance eroded >= nominal >= dilated | property of the design | 0 | ≤ 0 | pass | compliance eroded 236, nominal 195, dilated 175 N mm; measured: the largest relative step out of that order, 0 when in order; MBB beam 120 x 40, density filter radius 4.8, spread 0.25, beta 1 to 32 doubling every 50 passes (300 passes), MMA |
 | 24 | 3D cantilever 48 x 24 x 24, irregular 0-and-1 design: compliance against CalculiX | reference code | 5.53e-09 | ≤ 0.005 | pass | relative difference; compliance 0.0249 N mm here, 0.0249 N mm by CalculiX 2.23; 12341 solid elements, one C3D8 element each in CalculiX; 173 steps to 1e-10; displacements of the 625 loaded nodes: largest difference over the largest displacement 1.47e-07 (reported, not judged), CalculiX printing them to 7 significant digits |
+| 25 | 3D density filter equals the weighted mean over every pair of elements within the radius | independent computation | 5.55e-16 | ≤ 1e-12 | pass | largest absolute difference over the elements, random x; the direct mean computed in the row from the distances between all element centres; 13 x 11 x 9 elements of side 1.5 mm, 48 inactive, radius 3.7 mm, 4 threads |
+| 25 | 3D density filter keeps a uniform field uniform | closed form | 2.78e-16 | ≤ 1e-14 | pass | largest \|rho - 0.37\| over the active elements; 13 x 11 x 9 elements of side 1.5 mm, 48 inactive, radius 3.7 mm, 4 threads |
+| 25 | 3D density filter: backward is the transpose, <F x, y> = <x, F^T y> | closed form | 7.4e-16 | ≤ 1e-12 | pass | difference relative to <F x, y> = 307, random x and y; 13 x 11 x 9 elements of side 1.5 mm, 48 inactive, radius 3.7 mm, 4 threads |
+| 25 | 3D density filter with empty faces and inactive elements equals the mean over a grid padded with void | independent computation | 5.55e-16 | ≤ 1e-12 | pass | largest absolute difference over the elements, random x; the padded grid built in the row; empty faces x+, y-, z-, z+, the others closed; 48 inactive elements, empty; 13 x 11 x 9 elements of side 1.5 mm, radius 3.7 mm, 4 threads |
+| 25 | 3D density filter with empty faces and inactive elements: backward is the transpose | closed form | 2.1e-15 | ≤ 1e-12 | pass | difference relative to <F x, y> = 270, random x and y; empty faces x+, y-, z-, z+, the others closed; 48 inactive elements, empty; 13 x 11 x 9 elements of side 1.5 mm, radius 3.7 mm, 4 threads |
+| 25 | 2D density filter with empty faces and inactive elements equals the mean over a grid padded with void | independent computation | 2.22e-16 | ≤ 1e-12 | pass | largest absolute difference over the elements, random x; the padded grid built in the row; empty faces x+, y-, the others closed; 12 inactive elements, empty; 17 x 12 elements of side 1.5 mm, radius 3.7 mm, 1 thread |
+| 25 | 2D density filter with empty faces and inactive elements: backward is the transpose | closed form | 1.63e-16 | ≤ 1e-12 | pass | difference relative to <F x, y> = 43.6, random x and y; empty faces x+, y-, the others closed; 12 inactive elements, empty; 17 x 12 elements of side 1.5 mm, radius 3.7 mm, 1 thread |
+| 25 | Member-size limit (3D grid): derivative against central differences | gradient | 2.2e-09 | ≤ 1e-05 | pass | 370 active elements, smooth random filtered field; 350 of them below the threshold with an indicator above 1e-3; radius 2.5 element sides, c = 39.1, beta 8, threshold 0.6; step 1e-6 |
+| 25 | Member-size limit (2D grid): derivative against central differences | gradient | 9e-10 | ≤ 1e-05 | pass | 154 active elements, smooth random filtered field; 133 of them below the threshold with an indicator above 1e-3; radius 2.5 element sides, c = 39.1, beta 8, threshold 0.6; step 1e-6 |
+| 26 | Member-size limit, 3D plate 1.25 times the size thick: g at most eps | property of the design | 1.72e-16 | ≤ 5.5e-08 | pass | g = 1.72e-16; size 8 element sides, density filter R = 8 (r = 8), beta 32, eta_e = 0.812 from member_threshold, c = 4096, eps = 5.5e-08 (figure 8 of Zhou et al. 2015 at r = 8) |
+| 26 | Member-size limit, 3D plate 0.75 times the size thick: g at least 100 eps | property of the design | 0.0125 | ≤ 1 | pass | measured 100 eps / g, g = 0.00044; size 8 element sides, density filter R = 8 (r = 8), beta 32, eta_e = 0.812 from member_threshold, c = 4096, eps = 5.5e-08 (figure 8 of Zhou et al. 2015 at r = 8) |
+| 26 | Member-size limit, 2D strip 1.25 times the size thick: g at most eps | property of the design | 1.02e-16 | ≤ 5.5e-08 | pass | g = 1.02e-16; size 8 element sides, density filter R = 8 (r = 8), beta 32, eta_e = 0.78 from member_threshold, c = 4096, eps = 5.5e-08 (figure 8 of Zhou et al. 2015 at r = 8) |
+| 26 | Member-size limit, 2D strip 0.75 times the size thick: g at least 100 eps | property of the design | 0.00893 | ≤ 1 | pass | measured 100 eps / g, g = 0.000616; size 8 element sides, density filter R = 8 (r = 8), beta 32, eta_e = 0.78 from member_threshold, c = 4096, eps = 5.5e-08 (figure 8 of Zhou et al. 2015 at r = 8) |
+| 26 | Member-size limit, 3D plate against an empty face (z-) 1.25 times the size thick: g at most eps | property of the design | 1.25e-16 | ≤ 5.5e-08 | pass | g = 1.25e-16; size 8 element sides, density filter R = 8 (r = 8), beta 32, eta_e = 0.812 from member_threshold, c = 4096, eps = 5.5e-08 (figure 8 of Zhou et al. 2015 at r = 8); the member's layers start at the empty face, the other faces closed |
+| 26 | Member-size limit, 3D plate against an empty face (z-) 0.75 times the size thick: g at least 100 eps | property of the design | 0.00796 | ≤ 1 | pass | measured 100 eps / g, g = 0.000691; size 8 element sides, density filter R = 8 (r = 8), beta 32, eta_e = 0.812 from member_threshold, c = 4096, eps = 5.5e-08 (figure 8 of Zhou et al. 2015 at r = 8); the member's layers start at the empty face, the other faces closed |
+| 26 | Member-size limit, 2D strip against an empty face (y-) 1.25 times the size thick: g at most eps | property of the design | 7.45e-17 | ≤ 5.5e-08 | pass | g = 7.45e-17; size 8 element sides, density filter R = 8 (r = 8), beta 32, eta_e = 0.78 from member_threshold, c = 4096, eps = 5.5e-08 (figure 8 of Zhou et al. 2015 at r = 8); the member's layers start at the empty face, the other faces closed |
+| 26 | Member-size limit, 2D strip against an empty face (y-) 0.75 times the size thick: g at least 100 eps | property of the design | 0.00568 | ≤ 1 | pass | measured 100 eps / g, g = 0.000968; size 8 element sides, density filter R = 8 (r = 8), beta 32, eta_e = 0.78 from member_threshold, c = 4096, eps = 5.5e-08 (figure 8 of Zhou et al. 2015 at r = 8); the member's layers start at the empty face, the other faces closed |
+| 27 | MBB beam 180 x 60 with the member-size limit: largest share of the solid removed by an opening of 0.9 times the size, over three runs | property of the design | 0.00132 | ≤ 0.05 | pass | three runs that differ only in the bound, eps x (1): 0.132 % removed, g / eps 1.02, compliance 267 N mm (1.03 times that without the limit); eps x (1 + 1e-9): 0.132 % removed, g / eps 1, compliance 267 N mm (1.03 times that without the limit); eps x (1 + 1e-6): 0.132 % removed, g / eps 1, compliance 267 N mm (1.03 times that without the limit); without the limit 14.7 % removed, compliance 259 N mm, g / eps 1360; value at the switch 7.96e-05; filter faces x- closed, x+ empty, y- empty, y+ empty, a solid pad of 7 x 7 elements at the support (KeepSolid); the measure and its 5 % limit fixed before any run, the size 7 elements, the mass fraction 0.35, the 10 % tolerance on the bound and the 10 % guard set after trial runs (see the set-up above the row); x from 0.5, R = 7, beta 1 to 32 doubling every 50 passes, then 300 passes at beta 32 with eta_e 0.78, c 2400, eps 6e-08 and the limit's scale its value at the switch; MMA |
+| 27 | MBB beam 180 x 60 with the member-size limit: the limit met at the end, largest g / (1.1 bound) over three runs | property of the design | 0.931 | ≤ 1 | pass | the same three runs, g / bound 1.02, 1, 1; the limit's bound eps is read off a figure and met only to the optimiser's accuracy |
+| 27 | MBB beam 180 x 60 without the member-size limit: share removed by the same opening at least 10 % | property of the design | 0.679 | ≤ 1 | pass | measured 0.1 / share, share 14.7 %, twice the 5 % limit: the limit has work to do |
 
-50 passed, 0 failed, 0 not run.
+70 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 
@@ -81,7 +106,8 @@ From the repository, with the package and SciPy installed:
 
 Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`, and row 24 the output of
 CalculiX (`tools/reference/make_calculix_reference.py` writes it; CalculiX is not needed to run the row);
-row 9 solves its problems a second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy, and
-row 16 solves the 3D system directly with SciPy. Without them those rows are listed as not run. The command
+row 9 solves its problems a second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy,
+row 16 solves the 3D system directly with SciPy, and row 27 measures its members with SciPy's morphological
+opening. Without them those rows are listed as not run. The command
 exits with status 1 when a row fails (and, with `--require-all`, when a row was not run). The test suite runs
 the same functions.

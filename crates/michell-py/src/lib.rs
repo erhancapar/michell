@@ -8,9 +8,10 @@
 //! - `elasticity`: `michell.Elasticity` and `michell.element_stiffness`;
 //! - `grid3d`: `michell.Grid3d`;
 //! - `elasticity3d`: `michell.Elasticity3d` and `michell.element_stiffness_3d`;
-//! - `filter`: `michell.DensityFilter`;
+//! - `filter`: `michell.DensityFilter`, on a 2D or a 3D grid;
 //! - `helmholtz_filter`: `michell.HelmholtzFilter`;
 //! - `projection`: `michell.Projection`, the smoothed step towards 0 or 1;
+//! - `member_size`: `michell.member_size`, the member-size constraint and its derivative;
 //! - `oc`: `michell.Oc`, the optimality-criteria update;
 //! - `mma`: `michell.Mma`, the method of moving asymptotes;
 //! - `dot`: `michell.dot`, the dot product of two vectors.
@@ -24,6 +25,7 @@ mod filter;
 mod grid;
 mod grid3d;
 mod helmholtz_filter;
+mod member_size;
 mod mma;
 mod oc;
 mod projection;
@@ -51,6 +53,8 @@ mod _engine {
     use super::grid3d::Grid3d;
     #[pymodule_export]
     use super::helmholtz_filter::HelmholtzFilter;
+    #[pymodule_export]
+    use super::member_size::member_size;
     #[pymodule_export]
     use super::mma::Mma;
     #[pymodule_export]

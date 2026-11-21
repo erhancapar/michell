@@ -152,6 +152,11 @@ impl HelmholtzFilter {
         self.length
     }
 
+    /// The side of one element, mm.
+    pub fn element_size(&self) -> f64 {
+        self.grid.h()
+    }
+
     pub fn tolerance(&self) -> f64 {
         self.tolerance
     }

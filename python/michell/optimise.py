@@ -37,10 +37,21 @@ from michell.problem import Problem
 @dataclass(frozen=True)
 class Limit:
     """A limit on a response: ``response`` must not exceed ``at_most`` (in the response's unit). With
-    several designs, the response names the design it reads: ``Limit(on("dilated", Mass()), at_most=...)``."""
+    several designs, the response names the design it reads: ``Limit(on("dilated", Mass()), at_most=...)``.
+
+    ``scale`` (in the response's unit, positive) is the size by which an optimiser measures how far the
+    limit is from being met: ``MovingAsymptotes`` hands MMA ``(value - at_most) / scale``. The default,
+    ``None``, is ``|at_most|`` (1 when ``at_most`` is 0): the limit's relative excess over its bound. A
+    bound far below the values the response takes before the limit is met (the member-size limit, whose
+    bound is of the order of 1e-7) needs a larger scale; see ``michell.member_size``."""
 
     response: Response
     at_most: float
+    scale: float | None = None
+
+    def __post_init__(self):
+        if self.scale is not None and not (np.isfinite(self.scale) and self.scale > 0):
+            raise ValueError(f"the scale of a limit must be a positive number; got {self.scale!r}")
 
 
 class Optimiser(Protocol):

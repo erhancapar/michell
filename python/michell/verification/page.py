@@ -7,21 +7,26 @@ from collections.abc import Sequence
 from michell.row import Row, g3
 
 INTRODUCTION = """\
-This table checks the 2D and the 3D analysis, the 2D and the 3D optimisation, the Helmholtz filter and the
-projection against closed-form solutions, against an exact integration and an independent assembly of the 3D
-stiffness matrix, against a sparse direct solution of the 3D system, against central finite differences,
-against the published 88-line topology optimisation code (Andreassen et al., Struct. Multidisc. Optim. 43,
-2011, run in GNU Octave; see `tests/reference/top88/PROVENANCE.txt`), against published optima (Svanberg,
-Int. J. Numer. Meth. Eng. 24, 1987) and against the finite-element program CalculiX on the same voxels (see
-`tests/reference/calculix/PROVENANCE.txt`); it also runs the 3D analysis and the Helmholtz filter on several thread
-counts and twice in a row and compares the numbers, counts the steps the 3D solver takes, and checks the three
+This table checks the 2D and the 3D analysis, the 2D and the 3D optimisation, the density filter on a 3D grid,
+the Helmholtz filter, the projection and the member-size limit against closed-form solutions, against an exact
+integration and an independent assembly of the 3D stiffness matrix, against a sparse direct solution of the 3D
+system, against central finite differences, against the published 88-line topology optimisation code
+(Andreassen et al., Struct. Multidisc. Optim. 43, 2011, run in GNU Octave; see
+`tests/reference/top88/PROVENANCE.txt`), against published optima (Svanberg, Int. J. Numer. Meth. Eng. 24,
+1987) and against the finite-element program CalculiX on the same voxels (see
+`tests/reference/calculix/PROVENANCE.txt`); it also runs the 3D analysis and the filters on several thread
+counts and twice in a row and compares the numbers, counts the steps the 3D solver takes, checks the three
 designs of a robust optimisation (Wang, Lazarov and Sigmund, Struct. Multidisc. Optim. 43, 2011) for their
 mass, their discreteness (the measure of Sigmund, Struct. Multidisc. Optim. 33, 2007) and the order of their
-compliances. The measure, the set-up and the limit of every row were fixed before its first result was
-computed; a limit is never changed to make a row pass. Every limit is an upper bound on the measured value.
-Measured values are rounded to three significant digits; values at the level of floating-point round-off may
-differ in those digits from one machine to another. The code of every row, with its set-up, is in
-`python/michell/verification/`, and continuous integration runs every row on each change."""
+compliances, and checks the minimum member size as a limit (Zhou, Lazarov, Wang and Sigmund, Comput. Methods
+Appl. Mech. Engrg. 293, 2015) on thin and thick members and on an optimised beam, whose members it measures by
+a morphological opening. The measure, the set-up and the limit of every row were fixed before its first result
+was computed, with one exception, stated in its note: in row 27 the measure and its 5 % limit were fixed before
+any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
+were set after trial runs. Every limit is an upper bound on the measured value. Measured values are rounded
+to three significant digits; values at the level of floating-point round-off may differ in those digits from
+one machine to another. The code of every row, with its set-up, is in `python/michell/verification/`, and
+continuous integration runs every row on each change."""
 
 REGENERATING = """\
 ## Regenerating this page
@@ -32,8 +37,9 @@ From the repository, with the package and SciPy installed:
 
 Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`, and row 24 the output of
 CalculiX (`tools/reference/make_calculix_reference.py` writes it; CalculiX is not needed to run the row);
-row 9 solves its problems a second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy, and
-row 16 solves the 3D system directly with SciPy. Without them those rows are listed as not run. The command
+row 9 solves its problems a second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy,
+row 16 solves the 3D system directly with SciPy, and row 27 measures its members with SciPy's morphological
+opening. Without them those rows are listed as not run. The command
 exits with status 1 when a row fails (and, with `--require-all`, when a row was not run). The test suite runs
 the same functions."""
 

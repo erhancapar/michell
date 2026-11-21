@@ -17,6 +17,14 @@ from michell.optimise import Limit
 from michell.problem import Problem
 
 
+def limit_scale(limit: Limit) -> float:
+    """The scale a limit reaches MMA with: its own ``scale``, or ``|at_most|`` (1 when that is 0)."""
+    if limit.scale is not None:
+        return float(limit.scale)
+    bound = float(limit.at_most)
+    return abs(bound) if bound != 0.0 else 1.0
+
+
 class MovingAsymptotes:
     """MMA over the active elements, each design variable between 0 and 1.
 
@@ -26,8 +34,9 @@ class MovingAsymptotes:
     numbers of order one, whatever their units (a compliance may be 1000 N mm, a mass 0.02 g). So:
 
     - the goal is divided by the size of its value at the first pass, so it starts at 1 or -1;
-    - a limit ``value <= at_most`` reaches MMA as ``(value - at_most) / |at_most| <= 0``: its relative
-      excess over the bound, 0 where the limit is just met (a bound of 0 is used without division).
+    - a limit ``value <= at_most`` reaches MMA as ``(value - at_most) / scale <= 0``, with the limit's
+      ``scale`` (``michell.Limit``); by default ``scale = |at_most|``, so the limit reaches MMA as its
+      relative excess over the bound, 0 where it is just met (a bound of 0 is used without division).
 
     Both scales are fixed for the whole run: MMA's asymptotes and approximations assume that the functions
     do not change from one pass to the next.
@@ -40,7 +49,7 @@ class MovingAsymptotes:
         self._active = problem.grid.active == 1.0
         n = int(self._active.sum())
         self._bounds = np.array([float(limit.at_most) for limit in limits])
-        self._limit_scales = np.array([abs(b) if b != 0.0 else 1.0 for b in self._bounds])
+        self._limit_scales = np.array([limit_scale(limit) for limit in limits])
         self._goal_scale: float | None = None  # the goal is first known at the first update
         self._engine = _engine.Mma(np.zeros(n), np.ones(n), len(limits))
 

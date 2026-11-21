@@ -10,8 +10,10 @@ The package holds:
 - the module interface (``docs/design/modules.md``): ``Response``, ``Filter``, ``Partials`` and the
   read-only ``Evaluation``, with ``Row`` (``michell.row``), the result of one check, which a module's
   self-test and the verification table both use;
-- the responses ``Compliance`` and ``Mass``, the ``DensityFilter`` (2D), the ``HelmholtzFilter`` (3D) and
-  the ``Projection`` (both);
+- the responses ``Compliance`` and ``Mass``, the ``DensityFilter`` (2D and 3D), the ``HelmholtzFilter``
+  (3D) and the ``Projection`` (both);
+- the minimum member size as a limit (``michell.member_size``): ``MemberSize``, a response on the filtered
+  field, and ``member_threshold``, the threshold that a wanted member size gives;
 - several designs from one set of design variables (``michell.designs``): ``on``, which names the design a
   goal or a limit reads, and ``robust_designs``, the eroded, nominal and dilated designs of the robust
   formulation;
@@ -43,8 +45,9 @@ from michell.analysis import Elasticity, Grid
 from michell.analysis3d import Elasticity3d, Grid3d
 from michell.designs import On, on, robust_designs
 from michell.evaluation import Evaluation
-from michell.filters import DensityFilter, HelmholtzFilter, Projection
+from michell.filters import DensityFilter, HelmholtzFilter, KeepSolid, Projection
 from michell.gradient_check import GradientCheck, check_gradient, check_on_small_problem
+from michell.member_size import MemberSize, member_threshold
 from michell.mma import MovingAsymptotes
 from michell.modules import Filter, Partials, Response
 from michell.oc import OptimalityCriteria
@@ -67,10 +70,12 @@ __all__ = [
     "Grid",
     "Grid3d",
     "HelmholtzFilter",
+    "KeepSolid",
     "Limit",
     "LoadCase",
     "Mass",
     "Material",
+    "MemberSize",
     "Mma",
     "MovingAsymptotes",
     "Oc",
@@ -90,6 +95,7 @@ __all__ = [
     "element_stiffness",
     "element_stiffness_3d",
     "engine_version",
+    "member_threshold",
     "on",
     "optimise",
     "robust_designs",

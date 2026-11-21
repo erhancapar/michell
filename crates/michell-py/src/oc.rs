@@ -4,8 +4,8 @@ use numpy::PyArray1;
 use pyo3::prelude::*;
 
 use crate::arrays::copy_vector;
-use crate::errors::run_engine;
-use crate::filter::DensityFilter;
+use crate::errors::{invalid_input, run_engine};
+use crate::filter::{DensityFilter, Inner};
 use crate::grid::Grid;
 
 /// The optimality-criteria update for one goal and one limit that is linear in the density.
@@ -52,7 +52,16 @@ impl Oc {
         let d_limit = copy_vector(d_limit, "d_limit")?;
         let limit_weights = copy_vector(limit_weights, "limit_weights")?;
         // The filter is frozen (it never changes after it is built), so it can be read without the lock.
-        let filter = filter.map(|f| &f.get().inner);
+        let filter = match filter.map(|f| &f.get().inner) {
+            None => None,
+            Some(Inner::Plane(filter)) => Some(filter),
+            Some(Inner::Solid(_)) => {
+                return Err(invalid_input(
+                    py,
+                    "OC takes the density filter on a 2D grid only",
+                ));
+            }
+        };
         let x_new = run_engine(py, || {
             self.inner
                 .update(&x, &d_goal, &d_limit, &limit_weights, limit_bound, filter)

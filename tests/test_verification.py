@@ -1,5 +1,5 @@
 """Tests for the verification table itself: rows without their data, the page, the exit status, and the
-MBB example with its picture."""
+MBB examples with their pictures."""
 
 import struct
 import subprocess
@@ -161,3 +161,17 @@ def test_the_robust_mbb_example_runs_and_writes_its_three_designs(tmp_path):
     assert "nominal" in result.stdout and "non-discreteness" in result.stdout
     width, height, raw = read_greyscale_png(picture)
     assert (width, height) == (3 * 180, 3 * (3 * 60) + 2 * 12)  # three designs of 180 x 60 elements, 3 px each
+
+
+@pytest.mark.slow
+def test_the_member_size_mbb_example_runs_and_writes_both_designs(tmp_path):
+    picture = tmp_path / "mbb_member_size.png"
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "examples" / "mbb_beam_member_size.py"), str(picture)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "with the limit" in result.stdout and "without the limit" in result.stdout
+    width, height, raw = read_greyscale_png(picture)
+    assert (width, height) == (3 * 180, 2 * (3 * 60) + 12)  # two designs of 180 x 60 elements, 3 px each

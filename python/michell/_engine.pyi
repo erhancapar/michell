@@ -211,11 +211,28 @@ class Elasticity3d:
 class DensityFilter:
     """The density filter with cone weights, over the active elements of a grid:
     rho_e = sum_j w_ej x_j / sum_j w_ej, w_ej = max(0, radius - distance between centres), radius in mm.
+    On a ``Grid`` it runs on one thread (``threads`` must be 1); on a ``Grid3d`` on ``threads`` threads,
+    as a long call. ``outside`` ("closed" or "empty", for every face or as a dict by face "x-", "x+",
+    "y-", "y+", "z-", "z+"; faces left out are closed) and ``inactive`` ("closed" or "empty") say what lies
+    beyond each face and in the inactive elements.
     """
 
     radius: float
+    element_size: float
+    is_3d: bool
+    threads: int
+    outside: dict[str, str]
+    inactive: str
 
-    def __init__(self, grid: Grid, radius: float) -> None: ...
+    def __init__(
+        self,
+        grid: Grid | Grid3d,
+        radius: float,
+        threads: int = 1,
+        *,
+        outside: str | dict[str, str] = "closed",
+        inactive: str = "closed",
+    ) -> None: ...
     def forward(self, x: Vector) -> Vector:
         """rho, one value per element (0 on inactive elements)."""
 
@@ -230,6 +247,7 @@ class HelmholtzFilter:
 
     radius: float
     length: float
+    element_size: float
     tolerance: float
     threads: int
 
@@ -254,6 +272,13 @@ class Projection:
 
     def backward(self, x: Vector, grad: Vector) -> Vector:
         """dg/dx from dg/dP: each entry of grad times P' at the same entry of x."""
+
+def member_size(
+    grid: Grid | Grid3d, filtered: Vector, projection: Projection, threshold: float, c: float
+) -> tuple[float, Vector]:
+    """The member-size constraint on the solid phase (Zhou, Lazarov, Wang and Sigmund 2015, eqs. 8 and 10),
+    g = (1/n) sum_e P(f_e) exp(-c |grad f|_e^2) [min(f_e - threshold, 0)]^2 over the active elements, with
+    the gradient per element side; returns g and dg/df."""
 
 class Oc:
     """The optimality-criteria update of the 88-line code: one goal, one limit linear in the density."""

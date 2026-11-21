@@ -3,8 +3,9 @@
 //! It holds the 2D analysis (the grid, the 4-node plane-stress element, a banded Cholesky solver and
 //! linear elasticity), the 3D analysis (the grid of cube voxels, the 8-node element, a matrix-free
 //! product solved by conjugate gradients with a multigrid preconditioner, on as many threads as asked
-//! for) and the pieces of the optimisation loop that run over every element (the density filter, the Helmholtz
-//! filter, the projection, the OC update and the method of moving asymptotes), with the dot product the loop needs. The crate contains
+//! for) and the pieces of the optimisation loop that run over every element (the density filter on both
+//! grids, the Helmholtz filter, the projection, the member-size limit, the OC update and the method of moving
+//! asymptotes), with the dot product the loop needs. The crate contains
 //! no unsafe code.
 //! Each file has one job:
 //!
@@ -27,10 +28,12 @@
 //! - `threads`: the thread pools of the 3D analysis and the sums and writes that do not depend on the
 //!   thread count;
 //! - `material`: the material law both analyses share (modified SIMP);
-//! - `density_filter`: the density filter with cone weights, forward and backward;
+//! - `density_filter`: the density filter with cone weights on the 2D grid, forward and backward;
+//! - `density_filter3d`: the same filter on the 3D grid, with one stencil of weights, on threads;
 //! - `helmholtz_filter`: the PDE (Helmholtz) filter on the 3D grid, forward and backward;
 //! - `projection`: the smoothed step (tanh projection) towards 0 or 1 around a threshold, forward and
 //!   backward;
+//! - `member_size`: the minimum member size as a limit on the filtered field (a geometric constraint);
 //! - `oc`: the optimality-criteria update;
 //! - `mma`: the method of moving asymptotes (asymptotes, approximations, move limits);
 //! - `mma_subproblem`: the interior-point solver of the MMA subproblem;
@@ -42,6 +45,7 @@
 pub mod banded_cholesky;
 pub mod conjugate_gradient;
 pub mod density_filter;
+pub mod density_filter3d;
 pub mod dot;
 pub mod elasticity2d;
 pub mod elasticity3d;
@@ -52,6 +56,7 @@ pub mod held_check;
 pub mod helmholtz_filter;
 pub mod hex8;
 pub mod material;
+pub mod member_size;
 pub mod mma;
 pub mod mma_subproblem;
 pub mod multigrid;
@@ -68,7 +73,8 @@ mod smoother_study;
 pub mod threads;
 
 pub use conjugate_gradient::SolveReport;
-pub use density_filter::DensityFilter;
+pub use density_filter::{DensityFilter, FilterEdge, FilterEdges};
+pub use density_filter3d::DensityFilter3d;
 pub use dot::dot;
 pub use elasticity2d::Elasticity2d;
 pub use elasticity3d::Elasticity3d;
@@ -77,6 +83,7 @@ pub use grid2d::Grid2d;
 pub use grid3d::Grid3d;
 pub use helmholtz_filter::HelmholtzFilter;
 pub use material::Material;
+pub use member_size::MemberSize;
 pub use mma::Mma;
 pub use oc::Oc;
 pub use projection::Projection;

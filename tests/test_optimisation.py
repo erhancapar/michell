@@ -51,8 +51,13 @@ def test_compliance_uses_the_state_as_its_adjoint():
 
 @pytest.mark.parametrize(
     "module",
-    [michell.Compliance(), michell.Mass(), michell.DensityFilter(michell.Grid(2, 2, 1.0, 1.0), 1.0)],
-    ids=["compliance", "mass", "density filter"],
+    [
+        michell.Compliance(),
+        michell.Mass(),
+        michell.DensityFilter(michell.Grid(2, 2, 1.0, 1.0), 1.0),
+        michell.KeepSolid(np.array([True, False, False, False])),
+    ],
+    ids=["compliance", "mass", "density filter", "keep solid"],
 )
 def test_every_module_passes_its_own_rows(module):
     rows = module.self_test()

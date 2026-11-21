@@ -13,13 +13,19 @@ classical starting point of structural layout optimisation.
 
 ## Status
 
-Pre-alpha. The 2D engine, milestone 1 of the [roadmap](docs/roadmap.md), is available: plane-stress analysis
-on a grid of square elements, the density filter, two optimisers (optimality criteria and the method of moving
-asymptotes), and the compliance and mass responses. They are checked against closed-form solutions, finite
-differences, a published reference code and published optima in the [verification table](docs/verification.md).
-3D analysis and CAD input are not yet implemented, and no release has been published.
+Pre-alpha. The 2D engine, milestone 1 of the [roadmap](docs/roadmap.md), and the 3D engine of milestone 2 are
+available. The 2D engine is plane-stress analysis on a grid of square elements with a direct solver, the
+density filter, two optimisers (optimality criteria and the method of moving asymptotes), and the compliance
+and mass responses. The 3D engine is analysis on a grid of cube elements whose stiffness matrix is never
+assembled, solved on several threads by conjugate gradients preconditioned with multigrid, together with the
+Helmholtz filter, the projection and several designs from one set of variables (the robust formulation),
+optimised by the method of moving asymptotes with the same responses. Both are checked against closed-form
+solutions, finite differences, a published reference code, published optima and, in 3D, the finite-element
+program CalculiX on the same mesh, in the [verification table](docs/verification.md). CAD input, the problem
+file and a command-line tool that runs it are not yet implemented, the run-time and memory measurements that
+complete milestone 2 are not yet published, and no release has been published.
 
-## Example
+## Examples
 
 The MBB beam of the 88-line topology optimisation code (Andreassen et al., 2011), from
 [`examples/mbb_beam.py`](examples/mbb_beam.py):
@@ -65,6 +71,60 @@ print(f"{len(result.passes)} passes, compliance {result.passes[-1].goal:.2f} N m
 *The result: half of a simply supported beam with a central load, its symmetry line on the left; black is
 solid material. The script writes this picture to `docs/images/mbb_150x50.png`.*
 
+The 3D cantilever from [`examples/cantilever_3d.py`](examples/cantilever_3d.py), with the Helmholtz filter
+and the method of moving asymptotes:
+
+```python
+import numpy as np
+
+import michell
+
+nx, ny, nz = 64, 32, 32
+# The block: nx by ny by nz cube elements of side 1 mm.
+grid = michell.Grid3d(nx, ny, nz, 1.0)
+
+# Clamped on the face x = 0: every degree of freedom of its nodes held.
+held = np.zeros(grid.n_dofs, dtype=bool)
+for k in range(nz + 1):
+    for j in range(ny + 1):
+        node = grid.node(0, j, k)
+        held[3 * node : 3 * node + 3] = True
+
+# 1000 N down (-z) along the lower edge of the free end, as consistent nodal forces of a uniform line load.
+loads = np.zeros(grid.n_dofs)
+for j in range(ny + 1):
+    share = 0.5 if j in (0, ny) else 1.0
+    loads[3 * grid.node(nx, j, 0) + 2] = -1000.0 / ny * share
+
+steel = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_mm3=7.85e-3)
+problem = michell.Problem(grid, held, steel, [michell.LoadCase("tip", loads)], threads=4)
+
+# Least compliance with at most 15 % of the block's mass.
+block_mass = steel.density_g_mm3 * grid.voxel_volume_mm3 * grid.n_elements
+mass_limit = 0.15 * block_mass
+pde_filter = michell.HelmholtzFilter(grid, 2.5, threads=4)
+result = michell.optimise(
+    problem,
+    goal=michell.Compliance(),
+    limits=[michell.Limit(michell.Mass(), at_most=mass_limit)],
+    filters=[pde_filter],
+    optimiser=michell.MovingAsymptotes(),
+    x=np.full(grid.n_elements, 0.15),
+    passes=120,
+)
+print(f"compliance {result.passes[0].goal:.4g} -> {result.passes[-1].goal:.4g} N mm")
+```
+
+![Three grey views of the optimised 3D cantilever: from the side, from above and from the free end](docs/images/cantilever_3d.png)
+
+*The 3D result, 64 x 32 x 32 elements: the density summed along y (from the side, clamped face on the left),
+along z (from above) and along x (from the free end); darker where more material lies.*
+
+![Three black-and-white beams one above the other: the eroded, nominal and dilated designs](docs/images/mbb_robust.png)
+
+*The MBB beam with the robust formulation, from [`examples/mbb_beam_robust.py`](examples/mbb_beam_robust.py):
+the eroded, the nominal and the dilated design of one set of variables, top to bottom; black is solid.*
+
 ## Planned scope
 
 - Stiffness-driven design in 2D and 3D under mass, stress and deflection constraints
@@ -96,7 +156,7 @@ To run the tests (the Python tests use the installed package):
     cargo test
     pip install pytest scipy
     pytest              # the fast tests
-    pytest -m slow      # the long runs: the 150 x 50 MBB beam and the example script
+    pytest -m slow      # the long runs: the larger MBB beams, the example scripts, the full-size 3D rows
     pytest -m ""        # everything
 
 To run every verification row and rewrite the verification table:
@@ -112,7 +172,9 @@ To run every verification row and rewrite the verification table:
 | `python/michell` | The Python package; `michell.verification` holds the verification rows |
 | `tests` | The Python test suite, and the reference results in `tests/reference` |
 | `examples` | Example scripts |
-| `docs` | The roadmap, the verification table, the design notes and the example's picture |
+| `benchmarks` | A script that measures run time, solver steps and memory of the 3D cantilever |
+| `tools/reference` | The scripts that run the reference programs (the 88-line code, CalculiX) and store their numbers |
+| `docs` | The roadmap, the verification table, the design notes and the examples' pictures |
 | `schema` | The schema of the problem definition (draft) |
 
 ## Licence

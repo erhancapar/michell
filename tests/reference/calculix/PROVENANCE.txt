@@ -1,0 +1,6 @@
+program: CalculiX 2.23 (G. Dhondt, www.calculix.de)
+solver: SPOOLES (direct), *STATIC, SOLVER=SPOOLES
+date: 2026-11-21
+command: ccx -i cantilever  (in the work folder, on the deck written by this script)
+written by: python tools/reference/make_calculix_reference.py [--ccx PATH] [--work FOLDER]
+case: cantilever_48x24x24_irregular: michell.verification.designs3d.irregular((48, 24, 24)): irregular, cut at 41 %, 45% solid in one face-joined group; 12341 C3D8 elements, 16961 nodes

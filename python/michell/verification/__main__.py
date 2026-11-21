@@ -18,7 +18,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m michell.verification",
         description="Run the verification rows of the engine and write the verification table.",
     )
-    parser.add_argument("--reference", type=Path, help="the folder that holds top88/ (tests/reference)")
+    parser.add_argument("--reference", type=Path, help="the folder that holds top88/ and calculix/ (tests/reference)")
     parser.add_argument("--out", type=Path, help="write the Markdown page here (default: print it)")
     parser.add_argument("--commit", help="the commit to name on the page")
     parser.add_argument("--require-all", action="store_true", help="count a row that was not run as a failure")

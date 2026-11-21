@@ -14,7 +14,9 @@ counts its steps, and row 18 compares a 3D cantilever with beam theory. Row 19 c
 loop through the Helmholtz filter against finite differences, and row 20 the filter itself against its
 properties and a 1D closed form. Row 21 checks the projection, row 22 the gradients of the robust
 formulation (several designs from one set of variables) in 3D, and row 23 runs the robust MBB beam and
-checks the mass, the discreteness and the order of the compliances of its three designs.
+checks the mass, the discreteness and the order of the compliances of its three designs. Row 24 compares
+the 3D analysis with CalculiX on the same voxels; it reads CalculiX's numbers from
+``tests/reference/calculix`` and reports "not run" when they are absent.
 """
 
 from __future__ import annotations
@@ -47,6 +49,7 @@ from michell.verification.analysis_rows import (
     row_5_plate_with_a_hole,
     row_6_first_pass,
 )
+from michell.verification.calculix_rows import row_24_calculix
 from michell.verification.filter3d_rows import row_19_gradients, row_20_filter
 from michell.verification.mbb import MBB_CASES
 from michell.verification.solver3d_rows import (
@@ -62,8 +65,8 @@ from michell.verification.robust_rows import row_21_projection, row_22_robust_gr
 
 
 def all_rows(reference: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 23 in order. ``reference`` is the folder that holds ``top88/`` (in the repository:
-    ``tests/reference``)."""
+    """Runs rows 1 to 24 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
+    the repository: ``tests/reference``)."""
     rows = []
     rows += row_1_element_matrix()
     rows += row_2_patch_test()
@@ -92,6 +95,7 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_21_projection()
     rows += row_22_robust_gradients()
     rows += row_23_robust_mbb()
+    rows += row_24_calculix(reference)
     return rows
 
 
@@ -132,4 +136,5 @@ __all__ = [
     "row_21_projection",
     "row_22_robust_gradients",
     "row_23_robust_mbb",
+    "row_24_calculix",
 ]

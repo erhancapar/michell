@@ -22,8 +22,9 @@ def test_rows_without_reference_data_report_not_run(reference):
         verification.row_6_first_pass(reference)
         + verification.row_8_mbb_with_oc(reference, "mbb_150x50_r6_density")
         + verification.row_10_mbb_with_mma(reference)
+        + verification.row_24_calculix(reference)
     )
-    assert len(rows) == 6
+    assert len(rows) == 7
     for row in rows:
         assert row.passed is None and row.measured is None and not row.was_run
         assert row.note == "not run: reference data not found"
@@ -73,6 +74,43 @@ def test_the_readme_example_is_taken_from_the_example_script():
             continue
         assert line in script[position:], f"README line not found in order in the example script: {line!r}"
         position = script.index(line, position) + 1
+
+
+# The lines of the README's 3D example that differ from the example script, where the script reads its
+# command line (size, threads, passes) or prints more.
+README_3D_OWN_LINES = {
+    "nx, ny, nz = 64, 32, 32",
+    'problem = michell.Problem(grid, held, steel, [michell.LoadCase("tip", loads)], threads=4)',
+    "pde_filter = michell.HelmholtzFilter(grid, 2.5, threads=4)",
+    "passes=120,",
+    'print(f"compliance {result.passes[0].goal:.4g} -> {result.passes[-1].goal:.4g} N mm")',
+}
+
+
+def readme_3d_block():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    return readme.split("```python\n")[2].split("```", 1)[0]
+
+
+def test_the_readme_3d_example_is_taken_from_the_3d_example_script():
+    text = (ROOT / "examples" / "cantilever_3d.py").read_text(encoding="utf-8")
+    script = [line.strip() for line in text.splitlines()]
+    position = 0
+    for line in readme_3d_block().splitlines():
+        line = line.strip()
+        if not line or line in README_3D_OWN_LINES:
+            continue
+        assert line in script[position:], f"README line not found in order in the 3D example script: {line!r}"
+        position = script.index(line, position) + 1
+
+
+@pytest.mark.slow
+def test_the_readme_3d_example_runs(capsys):
+    block = readme_3d_block()
+    small = block.replace("nx, ny, nz = 64, 32, 32", "nx, ny, nz = 16, 8, 8").replace("passes=120,", "passes=4,")
+    assert small != block
+    exec(compile(small, "README.md", "exec"), {})
+    assert "compliance" in capsys.readouterr().out
 
 
 def read_greyscale_png(path):

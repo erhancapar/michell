@@ -4,8 +4,9 @@ This table checks the 2D and the 3D analysis, the 2D and the 3D optimisation, th
 projection against closed-form solutions, against an exact integration and an independent assembly of the 3D
 stiffness matrix, against a sparse direct solution of the 3D system, against central finite differences,
 against the published 88-line topology optimisation code (Andreassen et al., Struct. Multidisc. Optim. 43,
-2011, run in GNU Octave; see `tests/reference/top88/PROVENANCE.txt`) and against published optima (Svanberg,
-Int. J. Numer. Meth. Eng. 24, 1987); it also runs the 3D analysis and the Helmholtz filter on several thread
+2011, run in GNU Octave; see `tests/reference/top88/PROVENANCE.txt`), against published optima (Svanberg,
+Int. J. Numer. Meth. Eng. 24, 1987) and against the finite-element program CalculiX on the same voxels (see
+`tests/reference/calculix/PROVENANCE.txt`); it also runs the 3D analysis and the Helmholtz filter on several thread
 counts and twice in a row and compares the numbers, counts the steps the 3D solver takes, and checks the three
 designs of a robust optimisation (Wang, Lazarov and Sigmund, Struct. Multidisc. Optim. 43, 2011) for their
 mass, their discreteness (the measure of Sigmund, Struct. Multidisc. Optim. 33, 2007) and the order of their
@@ -68,8 +69,9 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 23 | Robust MBB beam 120 x 40: mass of the nominal design against the asked mass | property of the design | 0.00267 | ≤ 0.01 | pass | nominal 2410 g, asked 2400 g; masses eroded, nominal, dilated: 1950, 2410, 2840 g; last bound on the dilated mass 2840 g; MBB beam 120 x 40, density filter radius 4.8, spread 0.25, beta 1 to 32 doubling every 50 passes (300 passes), MMA |
 | 23 | Robust MBB beam 120 x 40: non-discreteness of the nominal design, sum 4 rho (1 - rho) / n | property of the design | 0.0131 | ≤ 0.1 | pass | over all 4800 elements (Sigmund 2007); MBB beam 120 x 40, density filter radius 4.8, spread 0.25, beta 1 to 32 doubling every 50 passes (300 passes), MMA |
 | 23 | Robust MBB beam 120 x 40: compliance eroded >= nominal >= dilated | property of the design | 0 | ≤ 0 | pass | compliance eroded 236, nominal 195, dilated 175 N mm; measured: the largest relative step out of that order, 0 when in order; MBB beam 120 x 40, density filter radius 4.8, spread 0.25, beta 1 to 32 doubling every 50 passes (300 passes), MMA |
+| 24 | 3D cantilever 48 x 24 x 24, irregular 0-and-1 design: compliance against CalculiX | reference code | 5.53e-09 | ≤ 0.005 | pass | relative difference; compliance 0.0249 N mm here, 0.0249 N mm by CalculiX 2.23; 12341 solid elements, one C3D8 element each in CalculiX; 173 steps to 1e-10; displacements of the 625 loaded nodes: largest difference over the largest displacement 1.47e-07 (reported, not judged), CalculiX printing them to 7 significant digits |
 
-49 passed, 0 failed, 0 not run.
+50 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 
@@ -77,7 +79,9 @@ From the repository, with the package and SciPy installed:
 
     python -m michell.verification --reference tests/reference --out docs/verification.md
 
-Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`; row 9 solves its problems a
-second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy, and row 16 solves the 3D system
-directly with SciPy. Without them those rows are listed as not run. The command exits with status 1 when a row fails (and, with `--require-all`, when a row
-was not run). The test suite runs the same functions.
+Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`, and row 24 the output of
+CalculiX (`tools/reference/make_calculix_reference.py` writes it; CalculiX is not needed to run the row);
+row 9 solves its problems a second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy, and
+row 16 solves the 3D system directly with SciPy. Without them those rows are listed as not run. The command
+exits with status 1 when a row fails (and, with `--require-all`, when a row was not run). The test suite runs
+the same functions.

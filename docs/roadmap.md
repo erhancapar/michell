@@ -13,3 +13,7 @@ in the [verification table](verification.md). No dates are given.
 | 5. Additive manufacturing | Overhang and build-direction constraints for fused-filament printing; strength across layers | Predicted and measured stiffness of printed test parts agree within a limit stated in advance |
 | 6. Further physics | Natural frequency, buckling constraints, thermal stress | Each module passes its verification cases |
 | 7. Further manufacturing methods and integration | Constraints for casting, milling and extrusion; a C interface | Each module passes its verification cases |
+
+Status: milestone 1 is complete. Of milestone 2, the 3D engine is available and its verification cases pass,
+among them the 3D cantilever against CalculiX on the same mesh (verification row 24); its run time and memory
+are not yet published. Milestones 3 to 7 are planned.

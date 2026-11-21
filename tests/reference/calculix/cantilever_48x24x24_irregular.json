@@ -1,0 +1,24 @@
+{
+  "program": "CalculiX 2.23",
+  "solver": "SPOOLES",
+  "shape": [
+    48,
+    24,
+    24
+  ],
+  "voxel_side_mm": 1.0,
+  "youngs_modulus": 210000.0,
+  "poisson_ratio": 0.3,
+  "held": "every displacement of the nodes on the face x = 0",
+  "load": "1 N in -z spread over the face x = 48 by area (michell.verification.designs3d.face_load)",
+  "design": "michell.verification.designs3d.irregular((48, 24, 24)): irregular, cut at 41 %, 45% solid in one face-joined group",
+  "solid_elements": 12341,
+  "solid_mask_sha256": "699ac525c7016fd9e8f347b8d64d9596c8049471355cb14d454d040f61578c51",
+  "calculix_nodes": 16961,
+  "held_nodes": 625,
+  "loaded_nodes": 625,
+  "printed_digits": 7,
+  "compliance": 0.0249434589453125,
+  "twice_the_strain_energy": 0.02494346,
+  "reaction_z": 1.0
+}

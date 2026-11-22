@@ -30,7 +30,8 @@
 //!   r_zeta  = zeta z          - epsilon                   = 0
 //!   r_s     = lambda s        - epsilon                   = 0
 //!
-//! with every variable except x strictly positive and alpha < x < beta.
+//! with every variable except x strictly positive and alpha < x < beta (held as two positive distances,
+//! see "The distances to the bounds" below).
 //!
 //! One Newton step. The steps of xi, eta, mu, zeta and s follow from the last five lines once the others
 //! are known:
@@ -63,6 +64,20 @@
 //! The step is shortened so that every positive variable keeps at least 1 % of its value
 //! (fraction to the boundary), and then halved until a norm of all residuals falls (see "The weight of
 //! the limits in the line search" below).
+//!
+//! The distances to the bounds. x - alpha and beta - x are carried as unknowns of their own, each moved
+//! by the step (by d_x and by -d_x), and every product and quotient above that holds one of them uses
+//! that unknown, not a difference formed from x. At the last values of epsilon a bound that the goal
+//! presses on hard is held at a distance epsilon / xi (or epsilon / eta) that can lie below the spacing of
+//! the numbers near the bound: with a multiplier of 4e6 and epsilon 1e-10 the conditions ask for 2.5e-17,
+//! while the numbers near 0.58 are 1.1e-16 apart. x itself cannot hold that distance, and a step of a few
+//! times 1e-16 that the fraction to the boundary allows in exact arithmetic rounds x onto the bound; the
+//! distance formed from it is then 0, the next step divides by it, and the solution is not a number. A
+//! distance carried for itself is a small number held with its own relative precision, so the fraction to
+//! the boundary keeps it positive however small it is, and r_xi and r_eta can be brought to epsilon. x is
+//! formed from the nearer bound and the distance to it, x = alpha + (x - alpha) or beta - (beta - x), and
+//! is used only where x itself is needed: in the terms of the approximations, whose asymptotes lie far
+//! from it, and in the solution, which may then lie on a bound to the last digit.
 //!
 //! The units of the limits. The Newton direction does not depend on the units in which each limit is
 //! written, but the two tests of the method do: the step is halved until the Euclidean norm of all the
@@ -171,10 +186,15 @@ pub struct Solution {
     pub lambda: Vec<f64>,
 }
 
-/// All unknowns of the relaxed conditions (see the file header).
+/// All unknowns of the relaxed conditions (see the file header), with the distances of x to its bounds.
+/// In a Newton step (also a `Point`) the two distances are empty: their steps are d_x and -d_x.
 #[derive(Clone, Debug)]
 struct Point {
     x: Vec<f64>,
+    /// x - alpha, carried for itself (see "The distances to the bounds" in the file header).
+    above_alpha: Vec<f64>,
+    /// beta - x, likewise.
+    below_beta: Vec<f64>,
     y: Vec<f64>,
     z: f64,
     lambda: Vec<f64>,
@@ -334,8 +354,8 @@ impl Subproblem<'_> {
             y: r_y,
             z: r_z,
             lambda: r_lambda,
-            xi: threads.vector(n, |j| point.xi[j] * (x[j] - self.alpha[j]) - epsilon),
-            eta: threads.vector(n, |j| point.eta[j] * (self.beta[j] - x[j]) - epsilon),
+            xi: threads.vector(n, |j| point.xi[j] * point.above_alpha[j] - epsilon),
+            eta: threads.vector(n, |j| point.eta[j] * point.below_beta[j] - epsilon),
             mu: (0..self.m())
                 .map(|i| point.mu[i] * point.y[i] - epsilon)
                 .collect(),
@@ -351,10 +371,14 @@ impl Subproblem<'_> {
         let n = self.n();
         let m = self.m();
         let x = threads.vector(n, |j| 0.5 * (self.alpha[j] + self.beta[j]));
+        let above_alpha = threads.vector(n, |j| x[j] - self.alpha[j]);
+        let below_beta = threads.vector(n, |j| self.beta[j] - x[j]);
         Point {
-            xi: threads.vector(n, |j| (1.0 / (x[j] - self.alpha[j])).max(1.0)),
-            eta: threads.vector(n, |j| (1.0 / (self.beta[j] - x[j])).max(1.0)),
+            xi: threads.vector(n, |j| (1.0 / above_alpha[j]).max(1.0)),
+            eta: threads.vector(n, |j| (1.0 / below_beta[j]).max(1.0)),
             x,
+            above_alpha,
+            below_beta,
             y: vec![1.0; m],
             z: 1.0,
             lambda: vec![1.0; m],
@@ -374,6 +398,7 @@ impl Subproblem<'_> {
         let n = self.n();
         let m = self.m();
         let x = &point.x;
+        let (above, below) = (&point.above_alpha, &point.below_beta);
         let (p, q) = self.combined_terms(&point.lambda, threads);
         let gradients = self.limit_gradients(x, threads);
 
@@ -382,10 +407,10 @@ impl Subproblem<'_> {
             let ux = self.upper[j] - x[j];
             let xl = x[j] - self.lower[j];
             let psi_second = 2.0 * p[j] / (ux * ux * ux) + 2.0 * q[j] / (xl * xl * xl);
-            psi_second + point.xi[j] / (x[j] - self.alpha[j]) + point.eta[j] / (self.beta[j] - x[j])
+            psi_second + point.xi[j] / above[j] + point.eta[j] / below[j]
         });
         let b_x = threads.vector(n, |j| {
-            -res.x[j] - res.xi[j] / (x[j] - self.alpha[j]) + res.eta[j] / (self.beta[j] - x[j])
+            -res.x[j] - res.xi[j] / above[j] + res.eta[j] / below[j]
         });
         // D_y, b_y, b_lam per limit, and b_z.
         let d_y_diag: Vec<f64> = (0..m)
@@ -448,12 +473,8 @@ impl Subproblem<'_> {
             .map(|i| (b_y[i] + d_lambda[i]) / d_y_diag[i])
             .collect();
         Ok(Point {
-            xi: threads.vector(n, |j| {
-                (-res.xi[j] - point.xi[j] * d_x[j]) / (x[j] - self.alpha[j])
-            }),
-            eta: threads.vector(n, |j| {
-                (-res.eta[j] + point.eta[j] * d_x[j]) / (self.beta[j] - x[j])
-            }),
+            xi: threads.vector(n, |j| (-res.xi[j] - point.xi[j] * d_x[j]) / above[j]),
+            eta: threads.vector(n, |j| (-res.eta[j] + point.eta[j] * d_x[j]) / below[j]),
             mu: (0..m)
                 .map(|i| (-res.mu[i] - point.mu[i] * d_y[i]) / point.y[i])
                 .collect(),
@@ -462,14 +483,16 @@ impl Subproblem<'_> {
                 .map(|i| (-res.s[i] - point.s[i] * d_lambda[i]) / point.lambda[i])
                 .collect(),
             x: d_x,
+            above_alpha: Vec::new(),
+            below_beta: Vec::new(),
             y: d_y,
             z: d_z,
             lambda: d_lambda.to_vec(),
         })
     }
 
-    /// The longest step t <= 1 along `step` that keeps every positive variable above 1 % of its value
-    /// and x strictly between alpha and beta.
+    /// The longest step t <= 1 along `step` that keeps every positive variable above 1 % of its value,
+    /// the distances x - alpha and beta - x among them.
     fn longest_step(&self, point: &Point, step: &Point, threads: &Threads) -> f64 {
         let limit = |t: f64, value: f64, change: f64| {
             if change < 0.0 {
@@ -481,8 +504,8 @@ impl Subproblem<'_> {
         let mut t: f64 = 1.0;
         for block in threads.blocks(self.n(), |block| {
             block.fold(1.0_f64, |t, j| {
-                let t = limit(t, point.x[j] - self.alpha[j], step.x[j]);
-                let t = limit(t, self.beta[j] - point.x[j], -step.x[j]);
+                let t = limit(t, point.above_alpha[j], step.x[j]);
+                let t = limit(t, point.below_beta[j], -step.x[j]);
                 let t = limit(t, point.xi[j], step.xi[j]);
                 limit(t, point.eta[j], step.eta[j])
             })
@@ -500,12 +523,25 @@ impl Subproblem<'_> {
     }
 }
 
-/// point + t step.
-fn moved(point: &Point, step: &Point, t: f64, threads: &Threads) -> Point {
+/// point + t step. The distances to the bounds move by t d_x and -t d_x, and x is formed from the
+/// nearer bound and the distance to it (see "The distances to the bounds" in the file header).
+fn moved(sub: &Subproblem<'_>, point: &Point, step: &Point, t: f64, threads: &Threads) -> Point {
     let add = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(a, b)| a + t * b).collect();
     let add_on_threads = |a: &[f64], b: &[f64]| threads.vector(a.len(), |j| a[j] + t * b[j]);
+    let n = point.x.len();
+    let above_alpha = add_on_threads(&point.above_alpha, &step.x);
+    let below_beta = threads.vector(n, |j| point.below_beta[j] - t * step.x[j]);
+    let x = threads.vector(n, |j| {
+        if above_alpha[j] <= below_beta[j] {
+            sub.alpha[j] + above_alpha[j]
+        } else {
+            sub.beta[j] - below_beta[j]
+        }
+    });
     Point {
-        x: add_on_threads(&point.x, &step.x),
+        x,
+        above_alpha,
+        below_beta,
         y: add(&point.y, &step.y),
         z: point.z + t * step.z,
         lambda: add(&point.lambda, &step.lambda),
@@ -620,14 +656,14 @@ fn solve_in_given_units(
             let step = sub.newton_step(&point, &res, threads)?;
             let mut t = sub.longest_step(&point, &step, threads);
             let norm_before = res.norm(y_weight, lambda_weight, threads);
-            let mut candidate = moved(&point, &step, t, threads);
+            let mut candidate = moved(sub, &point, &step, t, threads);
             let mut candidate_res = sub.residual(&candidate, epsilon, threads);
             for _ in 0..STEP_HALVINGS {
                 if candidate_res.norm(y_weight, lambda_weight, threads) < norm_before {
                     break;
                 }
                 t *= 0.5;
-                candidate = moved(&point, &step, t, threads);
+                candidate = moved(sub, &point, &step, t, threads);
                 candidate_res = sub.residual(&candidate, epsilon, threads);
             }
             point = candidate;
@@ -959,5 +995,39 @@ mod tests {
         };
         let solution = solve(&sub).unwrap();
         assert!((solution.x[0] - 1.0).abs() < 1e-8);
+    }
+
+    /// Bounds pressed on hard by a steep goal (multipliers of 4e6): at the last epsilon each asks for a
+    /// distance of 2.5e-17, below the spacing of the numbers near the bound (1.1e-16 near 0.58). Formed
+    /// from x, that distance became 0 at epsilon 1e-10 and the solution was not a number.
+    #[test]
+    fn bounds_pressed_on_hard_are_solved_to_the_last_epsilon() {
+        let sub = Subproblem {
+            lower: &[0.08, -0.69, -0.5],
+            upper: &[1.58, 1.31, 1.5],
+            alpha: &[0.48, 0.31, 0.2],
+            beta: &[0.58, 0.41, 0.8],
+            p0: &[0.0, 1e6, 1.0],
+            q0: &[1e6, 0.0, 1.0],
+            p: &[1.0, 1.0, 1.0],
+            q: &[0.0, 0.0, 0.0],
+            r: &[-100.0],
+            a0: 1.0,
+            a: &[0.0],
+            c: &[1000.0],
+            d: &[1.0],
+        };
+        let solution = solve(&sub).unwrap();
+        assert!(solution.x.iter().all(|v| v.is_finite()), "{:?}", solution.x);
+        // x0 on beta, x1 on alpha (the goal falls and rises steeply there), x2 at the goal's minimum.
+        assert!((solution.x[0] - 0.58).abs() < 1e-15 && (solution.x[1] - 0.31).abs() < 1e-15);
+        assert!((solution.x[2] - 0.5).abs() < 1e-8);
+        assert!(
+            solution
+                .x
+                .iter()
+                .zip(sub.alpha.iter().zip(sub.beta))
+                .all(|(x, (a, b))| a <= x && x <= b)
+        );
     }
 }

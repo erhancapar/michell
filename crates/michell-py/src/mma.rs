@@ -8,7 +8,8 @@ use crate::errors::{invalid_input, run_engine};
 use crate::grid::non_negative;
 
 /// The MMA update for variables between `x_min` and `x_max` and `n_limits` limits written f_i(x) <= 0, on
-/// `threads` threads; the designs do not depend on the thread count.
+/// `threads` threads; the designs do not depend on the thread count. `move_limit` is the largest move of a
+/// variable in one update as a fraction of `x_max - x_min`, in (0, 1] (default 0.5).
 ///
 /// Unlike the other engine objects this one changes with every update (it remembers the two previous
 /// designs and the asymptotes), so it is not frozen. Calling `update` from a second Python thread while
@@ -21,19 +22,20 @@ pub struct Mma {
 #[pymethods]
 impl Mma {
     #[new]
-    #[pyo3(signature = (x_min, x_max, n_limits, threads = 1))]
+    #[pyo3(signature = (x_min, x_max, n_limits, threads = 1, move_limit = michell::mma::MOVE_FRACTION))]
     fn new(
         py: Python<'_>,
         x_min: &Bound<'_, PyAny>,
         x_max: &Bound<'_, PyAny>,
         n_limits: usize,
         threads: i64,
+        move_limit: f64,
     ) -> PyResult<Mma> {
         let threads = non_negative(py, threads, "threads")?;
         let x_min = copy_vector(x_min, "x_min")?;
         let x_max = copy_vector(x_max, "x_max")?;
         let inner = run_engine(py, || {
-            michell::Mma::with_threads(x_min, x_max, n_limits, threads)
+            michell::Mma::with_threads(x_min, x_max, n_limits, threads)?.with_move_limit(move_limit)
         })?;
         Ok(Mma { inner })
     }
@@ -52,6 +54,12 @@ impl Mma {
     #[getter]
     fn threads(&self) -> usize {
         self.inner.threads()
+    }
+
+    /// The largest move of a variable in one update, as a fraction of `x_max - x_min`.
+    #[getter]
+    fn move_limit(&self) -> f64 {
+        self.inner.move_limit()
     }
 
     /// How many updates have been made.

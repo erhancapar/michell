@@ -28,8 +28,12 @@
 //!
 //! Part 3. The move limits (2007 note, eqs 3.6 and 3.7):
 //!
-//!   alpha_j = max( x_min_j,  l_j + 0.1 (x_j - l_j),  x_j - 0.5 (x_max_j - x_min_j) )
-//!   beta_j  = min( x_max_j,  u_j - 0.1 (u_j - x_j),  x_j + 0.5 (x_max_j - x_min_j) )
+//!   alpha_j = max( x_min_j,  l_j + 0.1 (x_j - l_j),  x_j - mu (x_max_j - x_min_j) )
+//!   beta_j  = min( x_max_j,  u_j - 0.1 (u_j - x_j),  x_j + mu (x_max_j - x_min_j) )
+//!
+//! mu is the move limit: the largest move of a variable in one update, as a fraction of its range. The
+//! note uses mu = 0.5, the default here (`MOVE_FRACTION`); `Mma::with_move_limit` sets another value in
+//! (0, 1]. A smaller mu makes each update move less, whatever the asymptotes allow.
 //!
 //! Part 4. The approximation of each function f_i at the current design x (1987 paper; in the form of
 //! the 2007 note, eqs 3.2 to 3.5, whose small additions make it strictly convex):
@@ -70,7 +74,8 @@ pub const ASYMPTOTE_NEAREST: f64 = 0.01;
 pub const ASYMPTOTE_FARTHEST: f64 = 10.0;
 /// alpha and beta lie at least this fraction of the way from the asymptote to x.
 pub const ASYMPTOTE_MARGIN: f64 = 0.1;
-/// The largest move of a variable in one iteration, as a fraction of x_max - x_min.
+/// The default move limit: the largest move of a variable in one iteration, as a fraction of
+/// x_max - x_min (`Mma::with_move_limit` sets another).
 pub const MOVE_FRACTION: f64 = 0.5;
 /// The weights of the positive and the negative part of a derivative in p_ij and q_ij.
 const MAIN_WEIGHT: f64 = 1.001;
@@ -100,6 +105,8 @@ pub struct Mma {
     upper: Vec<f64>,
     /// The threads every update runs on.
     threads: Threads,
+    /// The move limit mu of part 3 of the header.
+    move_limit: f64,
 }
 
 impl Mma {
@@ -151,7 +158,22 @@ impl Mma {
             lower: vec![0.0; n],
             upper: vec![0.0; n],
             threads,
+            move_limit: MOVE_FRACTION,
         })
+    }
+
+    /// The same update with the move limit `move_limit` (mu of part 3 of the header): no variable moves
+    /// by more than `move_limit (x_max - x_min)` in one update. It must lie in (0, 1]; the default is
+    /// `MOVE_FRACTION`, 0.5.
+    pub fn with_move_limit(mut self, move_limit: f64) -> Result<Mma, EngineError> {
+        if !(move_limit > 0.0 && move_limit <= 1.0) {
+            return Err(EngineError::invalid_input(
+                "the move limit must lie above 0 and at most 1",
+            )
+            .with_number("move_limit", move_limit));
+        }
+        self.move_limit = move_limit;
+        Ok(self)
     }
 
     pub fn n_variables(&self) -> usize {
@@ -165,6 +187,11 @@ impl Mma {
     /// The number of threads every update runs on.
     pub fn threads(&self) -> usize {
         self.threads.count()
+    }
+
+    /// The move limit: the largest move of a variable in one update, as a fraction of x_max - x_min.
+    pub fn move_limit(&self) -> f64 {
+        self.move_limit
     }
 
     /// How many updates have been made.
@@ -202,13 +229,13 @@ impl Mma {
             let range = self.x_max[j] - self.x_min[j];
             self.x_min[j]
                 .max(lower[j] + ASYMPTOTE_MARGIN * (x[j] - lower[j]))
-                .max(x[j] - MOVE_FRACTION * range)
+                .max(x[j] - self.move_limit * range)
         });
         let beta = self.threads.vector(n, |j| {
             let range = self.x_max[j] - self.x_min[j];
             self.x_max[j]
                 .min(upper[j] - ASYMPTOTE_MARGIN * (upper[j] - x[j]))
-                .min(x[j] + MOVE_FRACTION * range)
+                .min(x[j] + self.move_limit * range)
         });
 
         // Part 4: the approximations of the goal and of each limit.
@@ -577,6 +604,39 @@ mod tests {
             }
         }
         assert!(Mma::with_threads(vec![0.0], vec![1.0], 0, 0).is_err());
+    }
+
+    /// A steep linear goal from the middle of the range: with the default limit the update moves a
+    /// variable by more than 0.1 of its range, with a limit of 0.1 by no more than that.
+    #[test]
+    fn the_move_limit_bounds_the_move_of_one_update() {
+        let start = [0.5, 0.5, 0.5];
+        let d_goal = [100.0, -100.0, 50.0];
+        let largest_move = |mma: Mma| {
+            let mut mma = mma;
+            let x = mma.update(&start, 1.0, &d_goal, &[], &[]).unwrap();
+            (0..3).fold(0.0_f64, |m, j| m.max((x[j] - start[j]).abs()))
+        };
+        let wide = Mma::new(vec![0.0; 3], vec![1.0; 3], 0).unwrap();
+        assert_eq!(wide.move_limit(), MOVE_FRACTION);
+        assert!(largest_move(wide) > 0.3);
+        let narrow = Mma::new(vec![0.0; 3], vec![2.0; 3], 0)
+            .unwrap()
+            .with_move_limit(0.1)
+            .unwrap();
+        assert_eq!(narrow.move_limit(), 0.1);
+        let moved = largest_move(narrow);
+        assert!(moved > 0.19 && moved <= 0.2 * (1.0 + 1e-12), "{moved}");
+        for refused in [0.0, -0.1, 1.5, f64::NAN, f64::INFINITY] {
+            let mma = Mma::new(vec![0.0], vec![1.0], 0).unwrap();
+            assert!(mma.with_move_limit(refused).is_err(), "{refused}");
+        }
+        assert!(
+            Mma::new(vec![0.0], vec![1.0], 0)
+                .unwrap()
+                .with_move_limit(1.0)
+                .is_ok()
+        );
     }
 
     #[test]

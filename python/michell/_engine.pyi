@@ -347,17 +347,23 @@ class Mma:
 
     The object remembers the two previous designs and the asymptotes, so one ``Mma`` belongs to one run.
     Every update runs on ``threads`` threads (default 1, at least 1); the designs do not depend on how many
-    there are.
+    there are. ``move_limit`` is the largest move of a variable in one update, as a fraction of
+    ``x_max - x_min``: a number above 0 and at most 1, by default 0.5 (the value of Svanberg's note);
+    another value raises ``EngineError`` with code ``invalid_input``.
     """
 
     n_variables: int
     n_limits: int
     threads: int
     """The number of threads every update runs on."""
+    move_limit: float
+    """The largest move of a variable in one update, as a fraction of ``x_max - x_min``."""
     iteration: int
     """How many updates have been made."""
 
-    def __init__(self, x_min: Vector, x_max: Vector, n_limits: int, threads: int = 1) -> None: ...
+    def __init__(
+        self, x_min: Vector, x_max: Vector, n_limits: int, threads: int = 1, move_limit: float = 0.5
+    ) -> None: ...
     def asymptotes(self) -> tuple[Vector, Vector]:
         """The lower and upper asymptotes of the last update."""
 

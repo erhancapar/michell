@@ -7,11 +7,13 @@ the loop's goal and limits into the numbers MMA works with.
 
 from __future__ import annotations
 
+import numbers
 from collections.abc import Sequence
 
 import numpy as np
 
 from michell import _engine
+from michell.errors import InvalidType, InvalidValue
 from michell.modules import Filter
 from michell.optimise import Limit
 from michell.problem import Problem
@@ -27,6 +29,12 @@ def limit_scale(limit: Limit) -> float:
 
 class MovingAsymptotes:
     """MMA over the active elements, each design variable between 0 and 1.
+
+    ``move_limit`` is the largest change of a design variable in one update (MMA's move limit, as a share
+    of the variable's range 0 to 1): a number above 0 and at most 1, by default 0.5, the value of
+    Svanberg's note. MMA's asymptotes already keep a step within bounds that adapt from pass to pass; a
+    smaller move limit adds a fixed bound on top, which damps the large steps a sharp projection can
+    provoke, at the price of more passes for a large change.
 
     Scaling. MMA's fixed constants (the penalty c_i = 1000 on a limit that cannot be met, the term
     1e-5 that makes each approximation strictly convex, the tolerance of the subproblem solver) are plain
@@ -44,6 +52,14 @@ class MovingAsymptotes:
 
     name = "MMA"
 
+    def __init__(self, move_limit: float = 0.5):
+        if isinstance(move_limit, bool) or not isinstance(move_limit, numbers.Real):
+            raise InvalidType(f"the move limit must be a number; got {move_limit!r}")
+        move_limit = float(move_limit)
+        if not 0.0 < move_limit <= 1.0:
+            raise InvalidValue(f"the move limit must lie above 0 and at most 1; got {move_limit!r}")
+        self.move_limit = move_limit
+
     def start(self, problem: Problem, x: np.ndarray, limits: Sequence[Limit], filters: Sequence[Filter]) -> None:
         # Only the active elements are design variables; the others keep x = 0 and never reach MMA.
         self._active = problem.grid.active == 1.0
@@ -52,7 +68,7 @@ class MovingAsymptotes:
         self._limit_scales = np.array([limit_scale(limit) for limit in limits])
         self._goal_scale: float | None = None  # the goal is first known at the first update
         # The update runs on the problem's threads; its designs do not depend on how many there are.
-        self._engine = _engine.Mma(np.zeros(n), np.ones(n), len(limits), problem.threads)
+        self._engine = _engine.Mma(np.zeros(n), np.ones(n), len(limits), problem.threads, self.move_limit)
 
     def update(
         self,

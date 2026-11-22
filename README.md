@@ -27,9 +27,11 @@ stopped. A complete optimisation with a minimum member size runs from one call (
 supports and loads are placed by position (`michell.select`), and a result can be written to files, among them
 a VTK file for ParaView. Both engines are checked against closed-form solutions, finite differences, a
 published reference code, published optima and, in 3D, the finite-element program CalculiX on the same mesh,
-in the [verification table](docs/verification.md). CAD input, the problem file and a command-line tool that
-runs it are not yet implemented, the run-time and memory measurements that complete milestone 2 are not yet
-published, and no release has been published.
+in the [verification table](docs/verification.md). Of milestone 3, a part can be described in a problem file
+with its regions as STL files, checked and run from the command line (`michell check`, `michell run`), and
+written as a closed mesh (STL and 3MF) whose region faces are the CAD model's own; STEP input and output,
+symmetry, time and memory estimates and the report are not yet implemented. Run time and memory at five grid
+sizes are on the [performance page](docs/performance.md). No release has been published.
 
 ## Examples
 

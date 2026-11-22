@@ -14,6 +14,6 @@ in the [verification table](verification.md). No dates are given.
 | 6. Further physics | Natural frequency, buckling constraints, thermal stress | Each module passes its verification cases |
 | 7. Further manufacturing methods and integration | Constraints for casting, milling and extrusion; a C interface | Each module passes its verification cases |
 
-Status: milestone 1 is complete. Of milestone 2, the 3D engine is available and its verification cases pass,
-among them the 3D cantilever against CalculiX on the same mesh (verification row 24); its run time and memory
-are not yet published. Milestones 3 to 7 are planned.
+Status: milestones 1 and 2 are complete; the 3D cantilever agrees with CalculiX on the same mesh (verification
+row 24), and run time and memory are on the [performance page](performance.md). Milestone 3 is in progress:
+the problem file, STL input and mesh output are available (see the README); milestones 4 to 7 are planned.

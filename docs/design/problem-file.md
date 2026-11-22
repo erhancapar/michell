@@ -106,8 +106,11 @@ way: a stable code, a sentence for people, and the numbers involved.
 
 ## Open questions (to settle in milestone 3 with test cases)
 
-1. How "touches a named body" becomes loaded or held nodes: only the contact face, or the overlapping volume.
-   The two give measurably different stiffness, so the choice is made with test cases that have a known answer.
+1. Settled: how "touches a named body" becomes loaded or held nodes. A named solid region of the part is
+   loaded as a body force over its voxels or held at all its nodes; any other body, or a box, acts on the
+   part's boundary faces in contact with it. The rules, with the held skin under a contact patch and the
+   filter faces, are in [geometry.md](geometry.md#supports-and-loads) (`michell.attach`); verification row
+   32 checks them against cases with known answers.
 2. Load kinds beyond a plain force. Reserved names, not in the first version: `moment_n_mm` about a point,
    `pressure_mpa` normal to the contact face, `remote_force_n` acting at a point away from the part.
 3. Whether one file may hold several materials or mass targets (the "outcomes" run of version 0.1), or whether

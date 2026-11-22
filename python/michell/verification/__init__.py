@@ -29,7 +29,11 @@ optimisation whose held elements must come back solid within its mass limit. Row
 cylinder and torus as the voxels are halved, bodies whose edges and vertices lie exactly on rays, and the
 thread count. Row 31 checks the voxel model of a part (``michell.regions.voxel_model``): its class
 volumes, a solid region nested in the design region, two regions that meet inside a voxel, the mirror option
-and the refusal of a region too thin for the voxels.
+and the refusal of a region too thin for the voxels. Row 32 checks supports and loads on the voxel model
+(``michell.attach``): a bar pulled by a face load and a bar under a region load against their closed forms,
+the force sums, a bore loaded through a pin with the held skin in a short run of ``stiff_part``, and the
+example bridge set up from regions and marker bodies against the example's own arrays and, in its slow line,
+its compliance.
 """
 
 from __future__ import annotations
@@ -65,6 +69,7 @@ from michell.verification.analysis_rows import (
 )
 from michell.verification.calculix_rows import row_24_calculix
 from michell.verification.filter3d_rows import row_19_gradients, row_20_filter
+from michell.verification.attach_rows import row_32_attach, row_32_bore, row_32_bridge_compliance
 from michell.verification.geometry_rows import row_30_voxeliser, row_31_voxel_model
 from michell.verification.keep_solid_rows import row_29_keep_solid
 from michell.verification.mbb import MBB_CASES
@@ -90,7 +95,7 @@ from michell.verification.robust_rows import row_21_projection, row_22_robust_gr
 
 
 def all_rows(reference: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 31 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
+    """Runs rows 1 to 32 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
     the repository: ``tests/reference``)."""
     rows = []
     rows += row_1_element_matrix()
@@ -132,6 +137,9 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_29_keep_solid()
     rows += row_30_voxeliser()
     rows += row_31_voxel_model()
+    rows += row_32_attach()
+    rows += row_32_bore()
+    rows += row_32_bridge_compliance()
     return rows
 
 
@@ -184,4 +192,7 @@ __all__ = [
     "row_29_keep_solid",
     "row_30_voxeliser",
     "row_31_voxel_model",
+    "row_32_attach",
+    "row_32_bore",
+    "row_32_bridge_compliance",
 ]

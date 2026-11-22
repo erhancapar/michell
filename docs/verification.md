@@ -18,13 +18,15 @@ then the member-size limit) on a 3D bridge and measures the design it returns, a
 (`KeepSolid`) stay solid and carry no derivative, also through a short optimisation; it checks the
 voxeliser, which turns closed triangle meshes into the share of every voxel inside them, against exact
 volumes, as the voxels are halved, on bodies whose edges and vertices lie exactly on its rays and on 1 and 12
-threads, and the voxel model of a part built from design, solid and void regions. The measure, the set-up and the limit of every row were fixed before its first result
-was computed, with three exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
+threads, and the voxel model of a part built from design, solid and void regions; and it checks supports and
+loads placed on that model by the bodies they touch against closed forms and against a part set up by hand. The measure, the set-up and the limit of every row were fixed before its first result
+was computed, with four exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
 were set after trial runs; and in row 30 the convergence measure (the largest error over 8 placements of
 each body) and the voxel sizes were set after two trial runs: one placement per size, whose error changed
 sign from size to size, then this measure at 2 to 0.25 mm, where the torus's error fell by 2.7 only from 2
-to 1 mm; its code states both; and the fifth line of row 9 (the two-bar truss with its goal written 1e6 times
+to 1 mm; its code states both; in row 32 the shortened schedule of the bore's run was set after a trial run
+with that of the recipe's tests, which does not meet the member-size limit; and the fifth line of row 9 (the two-bar truss with its goal written 1e6 times
 smaller) was added, with the limit of the row's first lines, after its problem was known to stop the subproblem
 solver of an earlier version. Every limit is an upper bound on the measured value. Measured values are rounded
 to three significant digits; values at the level of floating-point round-off may differ in those digits from
@@ -147,8 +149,26 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 31 | Voxel model: part symmetric about y with mirror=('y',), voxels whose class differs from their mirror's | property of the design | 0 | ≤ 0 | pass | two pads as two named solid regions; without mirror 0 voxels differ |
 | 31 | Voxel model: the same part with the void cylinder 1 mm off the plane is refused | property of the design | 0 | ≤ 0 | pass | the void region 'hole' is not mirror-symmetric about the plane y = 10.5 mm: 125.2 mm3 of its 396.7 mm3 has no mirror image (more than 0.5 %) |
 | 31 | Voxel model: a solid region 0.4 voxel sides thick is refused | property of the design | 0 | ≤ 0 | pass | the solid region 'plate' fills no voxel by majority on its own: its smallest extent is 0.4 mm, the voxel side 1 mm; use smaller voxels or a thicker region |
+| 32 | Supports and loads: bar pulled by a face load, mean x displacement of the loaded face against F L / (E A) | closed form | 2.49e-14 | ≤ 1e-08 | pass | F L / (E A) = 0.0019 mm; 121 loaded nodes on 100 contact faces; rollers through marker slabs on x = 0, y = 0, z = 0 |
+| 32 | Supports and loads: bar pulled by a face load, largest deviation of a loaded node from F L / (E A) | closed form | 3.67e-14 | < 1e-08 | pass | relative to F L / (E A); solved to a relative residual of 1e-12 |
+| 32 | Supports and loads: bar with Poisson's ratio 0 under a region load, mean x displacement of the face x = L against F L / (2 E A) | closed form | 1.77e-13 | ≤ 1e-08 | pass | F L / (2 E A) = 0.000952 mm; 4000 voxels; 1.25 % of the force on held degrees of freedom (1 LoadOnSupport warning) |
+| 32 | Supports and loads: bar with its loaded end face half-way through a voxel layer, pulled through a slab overhanging it by three voxels, loaded faces that are not end faces | closed form | 0 | ≤ 0 | pass | 100 contact faces, 121 loaded nodes; the voxel bar ends at 41 mm, the true one at 40.5 mm |
+| 32 | Supports and loads: bar with its loaded end face half-way through a voxel layer, mean x displacement of the loaded face against F L / (E A) for the true length | closed form | 0.0123 | ≤ 0.0125 | pass | L = 40.5 mm; the voxel bar is 41 mm long, so its exact extension differs by 0.0123: the voxel model's error in length, at most half a voxel over L |
+| 32 | Supports and loads: bar with its loaded end face a quarter through a voxel layer, pulled through a slab overhanging it by three voxels, loaded faces that are not end faces | closed form | 0 | ≤ 0 | pass | 100 contact faces, 121 loaded nodes; the voxel bar ends at 40 mm, the true one at 40.25 mm |
+| 32 | Supports and loads: bar with its loaded end face a quarter through a voxel layer, mean x displacement of the loaded face against F L / (E A) for the true length | closed form | 0.00621 | ≤ 0.0125 | pass | L = 40.25 mm; the voxel bar is 40 mm long, so its exact extension differs by -0.00621: the voxel model's error in length, at most half a voxel over L |
+| 32 | Supports and loads: largest difference of the nodal forces plus the dropped share from the stated force | closed form | 0 | ≤ 1e-12 | pass | relative to the force; 6 loads (the face and region loads of the bar, the pin, the bridge's pad, the two bars of (f)); dropped shares 0, 0.0125, 0, 0, 0, 0 |
+| 32 | Supports and loads: the example bridge set up from regions and marker bodies, active voxels that differ from the example's | independent computation | 0 | ≤ 0 | pass | 12000 voxels; 1032 held solid, 1650 held degrees of freedom |
+| 32 | Supports and loads: the example bridge set up from regions and marker bodies, held-solid voxels that differ from the example's | independent computation | 0 | ≤ 0 | pass | 12000 voxels; 1032 held solid, 1650 held degrees of freedom |
+| 32 | Supports and loads: the example bridge set up from regions and marker bodies, held degrees of freedom that differ from the example's | independent computation | 0 | ≤ 0 | pass | 12000 voxels; 1032 held solid, 1650 held degrees of freedom |
+| 32 | Supports and loads: the example bridge set up from regions and marker bodies, entries of the load vector that differ from the example's | independent computation | 0 | ≤ 0 | pass | 12000 voxels; 1032 held solid, 1650 held degrees of freedom |
+| 32 | Supports and loads: the example bridge, faces of the density filter that differ from the example's | independent computation | 0 | ≤ 0 | pass | set_up gives x- closed, x+ closed, y- empty, y+ empty, z- empty, z+ empty; inactive 'empty' (the bridge has no inactive voxel) |
+| 32 | Supports and loads: bore loaded through a pin with the held skin, a short stiff_part run meets its limits (0 when met) | property of the design | 0 | ≤ 0 | pass | mass 18.8 g of 18.8 g, member-size value 1e-07 (at most 1e-07); 240 mm2 of contact on 240 faces; skin 800 voxels, 6.28 g; 48 passes |
+| 32 | Supports and loads: bore loaded through a pin, bodies of the nominal design at 0.5 (joined through voxel faces) | property of the design | 1 | ≤ 1 | pass | 2396 solid voxels of 7680 active |
+| 32 | Supports and loads: bore loaded through a pin, active voxels at a loaded node outside the nominal design at 0.5 | property of the design | 0 | ≤ 0 | pass | 264 loaded nodes, 280 active voxels at them |
+| 32 | Supports and loads: the same pin load with skin=False is refused | property of the design | 0 | ≤ 0 | pass | load 0 of load case 'pin' (on a body from (27.01, 7.01, 0) to (32.99, 12.99, 10) mm) has skin=False, and 240 of its 240 contact faces lie on design voxels that are neither held solid nor on a closed face of the grid: the filtered design cannot become solid there. Hold the voxels behind it solid (a solid region), or leave the skin on |
+| 32 | Supports and loads: the example bridge set up through michell.attach, compliance of the full stiff_part run against the example's | independent computation | 0 | ≤ 1e-09 | pass | 8.95 against 8.95 N mm, 1 thread(s), 140 passes |
 
-112 passed, 0 failed, 0 not run.
+130 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 

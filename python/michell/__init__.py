@@ -37,6 +37,10 @@ The package holds:
   another (the engine's voxeliser), and ``voxel_model``, the ``VoxelModel`` of a part from its design, solid
   and void regions (the grid, the active and the held-solid voxels, a volume table, the bodies, an optional
   mirror), with the warning ``VoxelVolumeDiffers``;
+- ``michell.attach``: supports and loads on the voxel model (``Support``, ``Load`` and ``Case``, a load case
+  given by what its loads act on) and ``set_up``, which turns them into a ``Problem``, the voxels held
+  solid (the solid regions and a skin under every contact patch on design voxels) and the density filter's
+  faces, with a report, as a ``SetUp``; the warning ``LoadOnSupport``;
 - ``dot``, the dot product of two vectors in the engine, for responses (with the OpenBLAS build that NumPy
   ships, ``a @ b`` runs long products on every core);
 - ``EngineError``, the error every engine call raises; the checks written in Python raise it too, with
@@ -71,7 +75,8 @@ from michell.modules import Filter, Partials, Response
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, LimitNotMet, Pass, Result, optimise
 from michell.problem import LoadCase, Material, Problem
-from michell import export, mesh, recipes, regions, select
+from michell import attach, export, mesh, recipes, regions, select
+from michell.attach import Case, Load, LoadOnSupport, SetUp, Support, set_up
 from michell.export import read_result, write_result, write_vtk
 from michell.mesh import Mesh, read_stl, write_stl
 from michell.recipes import GridTooCoarse, RecipePass, StiffPart, member_size_bound, stiff_part
@@ -82,6 +87,7 @@ from michell.row import Row
 __version__ = _version("michell")
 
 __all__ = [
+    "Case",
     "Compliance",
     "DensityFilter",
     "Elasticity",
@@ -97,7 +103,9 @@ __all__ = [
     "KeepSolid",
     "Limit",
     "LimitNotMet",
+    "Load",
     "LoadCase",
+    "LoadOnSupport",
     "Mass",
     "Material",
     "MemberSize",
@@ -115,11 +123,14 @@ __all__ = [
     "Response",
     "Result",
     "Row",
+    "SetUp",
     "StiffPart",
+    "Support",
     "VolumeRow",
     "VoxelModel",
     "VoxelVolumeDiffers",
     "__version__",
+    "attach",
     "check_gradient",
     "check_on_small_problem",
     "dot",
@@ -138,6 +149,7 @@ __all__ = [
     "regions",
     "robust_designs",
     "select",
+    "set_up",
     "stiff_part",
     "voxel_model",
     "write_result",

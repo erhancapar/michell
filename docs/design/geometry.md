@@ -1,9 +1,9 @@
 # Geometry: from closed meshes to the voxel model
 
 Status: design note, kept in step with the code. Closed triangle meshes (`michell.mesh`), the voxeliser
-(the engine's `voxel_occupancy`, in Python `michell.regions.occupancy`) and the voxel model of a part
-(`michell.regions.voxel_model`) exist. Reading STEP, the problem file and supports and loads on the
-model's faces are planned (see the [roadmap](../roadmap.md)).
+(the engine's `voxel_occupancy`, in Python `michell.regions.occupancy`), the voxel model of a part
+(`michell.regions.voxel_model`) and supports and loads on that model (`michell.attach`) exist. Reading
+STEP and the problem file are planned (see the [roadmap](../roadmap.md)).
 
 ## Meshes
 
@@ -84,3 +84,104 @@ void regions (where it must not be), each a closed mesh.
   occupancy field is averaged with its mirror image (a region with a partner with its partner's), so the
   classes are mirror images of themselves exactly, whatever the rays decided on the plane itself.
   Verification row 31 checks the classes, the meeting of two regions, the mirror and the refusals.
+
+## Supports and loads
+
+`michell.attach.set_up(model, material, supports, cases, size_mm, threads=1, outside=None)` turns the voxel
+model, the supports (`Support(on, fix, skin)`) and the load cases (`Case(name, loads, weight)`, each load a
+`Load(on, force_n, skin)`) into the `Problem`, the voxels held solid (`KeepSolid`) and the density
+filter's faces that `stiff_part` takes, with a report per support and per load. A support or a load names
+what it acts `on`, and that decides how it is applied. No rule has a setting to tune.
+
+1. **A solid region of the part**, by its name in the model. A load is a uniform body force over the
+   region's voxels (the active voxels the region fills by majority): each voxel carries force / voxels,
+   one eighth of it at each of its eight nodes. A support holds every node of those voxels, in the
+   directions it fixes. This is the way to load or hold a volume.
+2. **Any other closed body** (a `Mesh`: a marker drawn where a clamp, a pin or a pad touches the part), or
+   **a box** given by its low and high corners in the meshes' coordinates. A load is a uniform traction over
+   the part's boundary faces in contact with the body: each face carries force / faces, one quarter of it
+   at each of its four corners (on a patch of a face of the grid this is `michell.select.load`, entry for
+   entry). A support holds the nodes of those faces. A boundary face lies between an active voxel and one
+   that is not active, or the grid's edge. It is **in contact** when, seen along the face's normal, the body
+   covers more than half of the face within a **window** two voxel sides deep centred on the face: the
+   boundary voxel and the position across it. This is measured on 16 rays along the normal through the
+   face, at 1/8, 3/8, 5/8 and 7/8 of its sides (an even count, so that no ray lies on a mid-plane of the
+   face): a ray counts when the body's length on it inside the window is at least one twentieth of a voxel
+   side, and the face is in contact when more than 8 of its 16 rays count. The lengths come from the
+   voxeliser, which is exact along its rays: the body is handed to it with its coordinates turned so that
+   the normal becomes x, on a grid four times finer than the model's with one ray per fine column, over the
+   box around the body only and in pieces of at most 4 194 304 fine voxels (32 MiB).
+
+   Why this is right: a voxel layer is active when the part fills at least half of it, so a body beyond the
+   part's true face covers at most half of that layer's side faces as seen along their normals (exactly
+   half in the tie, which "more than half" leaves out), while it covers the end face fully. The window
+   reaches into the boundary voxel, so a thin marker lying inside the last layer, where the part's true
+   face lies, is still seen; and the length along the normal is measured alike in x, y and z.
+
+           part's true face
+                 :
+       ----------+--:-------       a clamp drawn larger than the face, beyond the true face (:)
+       part      |  :  ######      inside the last voxel layer; window of the end face: |<-->|
+       (active   |  :  ######      seen along x, the clamp covers all of it: in contact
+       layer) ---+--:--######      window of the side face of the last layer, seen along y:
+                 |  :  ######      the clamp covers the half beyond (:), not more: not in contact
+       ----------+--:-------
+
+3. A body that touches no boundary face is refused, with the most rays it covers on any face and its
+   volume, and the advice that a marker should touch the part or overlap it slightly, and to name a solid
+   region when a volume is meant.
+4. **Shares on held degrees of freedom.** A load's shares on degrees of freedom that a support holds act on
+   the support directly: they are set to zero, not spread over the other nodes, which would add force the
+   part never sees. Their sum is reported per load (`dropped_n`, and `dropped_share`, its length over the
+   force's); `set_up` warns (`LoadOnSupport`) above 1 % and refuses the load above one half. A region load
+   on a bar held at one end, for example, puts 1/80 of the force on the held end nodes of a bar 40 voxels
+   long. Before the shares are dropped, the shares of every load sum to its force exactly (`math.fsum`; a
+   residue left by rounding goes to the largest entry).
+5. **The held skin.** With free filter faces the filtered field cannot pass about 0.6 at a face, and
+   `stiff_part` projects its eroded design at 0.75, so a patch on design voxels would load or hold void.
+   Where a contact face lies on a design voxel, the active voxels whose centre lies within half the member
+   size (at least two voxel sides) of the face's centre are held solid; a centre at exactly that distance
+   is inside, so behind a flat patch a member size of 5 voxels holds three layers. Nothing is added, and
+   nothing is refused, for contact faces on voxels the model already holds solid or on a face of the grid
+   that is closed for the filter (rule 6, after the caller's overrides). With `skin=False` on a support or
+   a load, a contact face on a design voxel that is neither held solid nor on a closed face is refused.
+   Region supports and loads need no skin. The report gives the skin's voxels and mass per support and load
+   (the voxels the model did not hold already).
+6. **Filter faces.** Every boundary of the part is a free surface for the density filter: `outside` is
+   `"empty"` on every face of the grid and `inactive` is `"empty"`; except that a face of the grid's box
+   whose whole active area (every boundary face of an active voxel on it) is in contact with one support is
+   `"closed"`: the part continues into what holds it. A face held only in part, or by two supports that
+   share it, stays free and relies on the skin. `outside=` overrides any face. A region support closes no
+   face.
+
+**Mirror planes.** The checks that supports and load cases are mirror images of each other belong to the
+symmetry rule and are not part of `set_up`. Nothing in it stands in their way: a box is turned into a
+`Mesh` and goes through the same contact rule as any body, and the contact faces of a body (`Faces`, by
+voxel and side, with the ray count of every boundary face in `Contact.rays`) are kept in the report, so the
+faces of one body can be compared with the mirror image of another's.
+
+**The cases that decide rule 2**, measured on 1 mm voxels (tests in `tests/test_attach.py`):
+
+- A bar of 10 x 10 mm whose end face lies on a grid plane, half-way, a quarter or three quarters through
+  the last voxel layer (a box cut by a void, or a box of 40.5 mm on its grid centred on it): a slab 1 mm
+  thick, or a marker a quarter of a voxel thick lying inside the layer, flush with the face's sides or
+  overhanging them by three voxels on every side, catches the 100 end faces and nothing else in all 16
+  combinations. Where the part fills the last layer to three quarters, the overhanging slab covers 4 of
+  the 16 rays of that layer's side faces; in the tie at one half, 8.
+- A pin in a bore of radius 3 mm on 32 sides (axis along z, through a block of 40 x 20 x 10 voxels), with a
+  clearance or an interference of a hundredth of a voxel in radius, catches all 240 faces of the bore and
+  no other face; every bore face has 12 or 16 of its rays covered. A pin of half the bore's diameter covers
+  no ray of any face and is refused.
+- A marker of L-shaped section wrapped around an edge from outside catches the faces of both sides of the
+  edge. A box that overlaps the part deeply also covers, seen along their normals, the faces it passes
+  under inside the part (a box through the bar's whole depth catches its top and bottom faces there):
+  markers are meant to touch the part or overlap it slightly.
+- A slab a twentieth of a voxel thick is seen across x, y and z alike; one a twenty-fifth thick is not.
+
+Verification row 32 checks a bar pulled by a face load with rollers on three faces (F L / (E A)) and a bar
+under a region load with Poisson's ratio 0 (F L / (2 E A)), the same bar with its end face half-way and a
+quarter through a voxel layer pulled through an overhanging slab (only end faces loaded; the extension
+against the true length, off by the voxel model's error in length, at most half a voxel), the force sums,
+a bore loaded through a pin with
+the held skin in a short run of `stiff_part`, and the example bridge set up from regions and marker bodies,
+which gives the example's arrays entry for entry.

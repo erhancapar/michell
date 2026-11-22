@@ -14,7 +14,8 @@
 //! - `member_size`: `michell.member_size`, the member-size constraint and its derivative;
 //! - `oc`: `michell.Oc`, the optimality-criteria update;
 //! - `mma`: `michell.Mma`, the method of moving asymptotes;
-//! - `dot`: `michell.dot`, the dot product of two vectors.
+//! - `dot`: `michell.dot`, the dot product of two vectors;
+//! - `voxelise`: `voxel_occupancy`, the share of every voxel inside a combination of closed meshes.
 
 mod arrays;
 mod dot;
@@ -29,6 +30,7 @@ mod member_size;
 mod mma;
 mod oc;
 mod projection;
+mod voxelise;
 
 use pyo3::pymodule;
 
@@ -61,6 +63,8 @@ mod _engine {
     use super::oc::Oc;
     #[pymodule_export]
     use super::projection::Projection;
+    #[pymodule_export]
+    use super::voxelise::voxel_occupancy;
 
     /// Return the version of the Rust engine crate.
     #[pyfunction]

@@ -15,10 +15,16 @@ compliances, and checks the minimum member size as a limit (Zhou, Lazarov, Wang 
 Appl. Mech. Engrg. 293, 2015) on thin and thick members and on an optimised beam, whose members it measures by
 a morphological opening; and it runs the two-step procedure of `michell.recipes` (the robust formulation,
 then the member-size limit) on a 3D bridge and measures the design it returns, and checks that elements held solid
-(`KeepSolid`) stay solid and carry no derivative, also through a short optimisation. The measure, the set-up and the limit of every row were fixed before its first result
-was computed, with one exception, stated in its note: in row 27 the measure and its 5 % limit were fixed before
+(`KeepSolid`) stay solid and carry no derivative, also through a short optimisation; it checks the
+voxeliser, which turns closed triangle meshes into the share of every voxel inside them, against exact
+volumes, as the voxels are halved, on bodies whose edges and vertices lie exactly on its rays and on 1 and 12
+threads, and the voxel model of a part built from design, solid and void regions. The measure, the set-up and the limit of every row were fixed before its first result
+was computed, with two exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
-were set after trial runs. Every limit is an upper bound on the measured value. Measured values are rounded
+were set after trial runs; and in row 30 the convergence measure (the largest error over 8 placements of
+each body) and the voxel sizes were set after two trial runs: one placement per size, whose error changed
+sign from size to size, then this measure at 2 to 0.25 mm, where the torus's error fell by 2.7 only from 2
+to 1 mm; its code states both. Every limit is an upper bound on the measured value. Measured values are rounded
 to three significant digits; values at the level of floating-point round-off may differ in those digits from
 one machine to another. The code of every row, with its set-up, is in `python/michell/verification/`, and
 continuous integration runs every row on each change.
@@ -120,8 +126,26 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 29 | KeepSolid on a 3D block 16 x 6 x 4: short optimisation, largest difference from 1 on the held elements | property of the design | 0 | ≤ 0 | pass | 56 of 384 elements held; 20 passes of MMA, filters KeepSolid, density filter (radius 1.5 mm), KeepSolid; mass limit 1.21 g, 40 % of the part |
 | 29 | KeepSolid on a 3D block 16 x 6 x 4: short optimisation, relative excess of the mass over its bound | property of the design | -0.000182 | ≤ 0.001 | pass | mass 1.21 g; limits met (True,), the run's limit_tolerance 1e-3; stop reason passes |
 | 29 | KeepSolid on a 3D block 16 x 6 x 4: short optimisation, mass of the held elements over the mass returned | property of the design | 0.365 | ≤ 1 | pass | held 0.44 g, returned density 1.21 g |
+| 30 | Voxeliser: box with faces on voxel planes, relative difference of the sampled from the exact volume | closed form | 0 | ≤ 1e-12 | pass | exact 192 mm3; 1 mm voxels, 3 x 3 rays per voxel column |
+| 30 | Voxeliser: box with x faces off the voxel planes, relative difference of the sampled from the exact volume | closed form | 1.11e-16 | ≤ 1e-12 | pass | exact 205 mm3; 1 mm voxels, 3 x 3 rays per voxel column |
+| 30 | Voxeliser: faceted sphere, largest ratio of the volume error after a voxel halving to before it | convergence | 0.222 | ≤ 0.333 | pass | largest relative volume error over 8 placements at 1 mm: 0.000188, 0.5 mm: 2.04e-05, 0.25 mm: 4.54e-06; ratios 0.108, 0.222; the measure (the largest over 8 placements) and the sizes were set after two trial runs (see the code) |
+| 30 | Voxeliser: faceted sphere, relative volume error at the finest voxel size (0.25 mm) | convergence | 4.54e-06 | ≤ 0.005 | pass | the largest over the 8 placements; against the faceted body's exact volume |
+| 30 | Voxeliser: faceted cylinder, largest ratio of the volume error after a voxel halving to before it | convergence | 0.268 | ≤ 0.333 | pass | largest relative volume error over 8 placements at 1 mm: 0.00311, 0.5 mm: 0.000578, 0.25 mm: 0.000155; ratios 0.186, 0.268; the measure (the largest over 8 placements) and the sizes were set after two trial runs (see the code) |
+| 30 | Voxeliser: faceted cylinder, relative volume error at the finest voxel size (0.25 mm) | convergence | 0.000155 | ≤ 0.005 | pass | the largest over the 8 placements; against the faceted body's exact volume |
+| 30 | Voxeliser: faceted torus, largest ratio of the volume error after a voxel halving to before it | convergence | 0.274 | ≤ 0.333 | pass | largest relative volume error over 8 placements at 1 mm: 0.0113, 0.5 mm: 0.0031, 0.25 mm: 0.000305; ratios 0.274, 0.0982; the measure (the largest over 8 placements) and the sizes were set after two trial runs (see the code) |
+| 30 | Voxeliser: faceted torus, relative volume error at the finest voxel size (0.25 mm) | convergence | 0.000305 | ≤ 0.005 | pass | the largest over the 8 placements; against the faceted body's exact volume |
+| 30 | Voxeliser: box whose edges lie on rays, relative difference of the sampled from the exact volume | closed form | 1.11e-16 | ≤ 1e-12 | pass | y from 1 + 1/6 to 6 + 1/6 and z from 1.5 to 4.5 voxel sides: corners, edges and the end faces' diagonals on rays |
+| 30 | Voxeliser: pyramid whose apex and base corners lie on rays, relative difference from the same body shifted off the rays | independent computation | 1.31e-05 | ≤ 0.001 | pass | shift (sqrt 5, sqrt 2, sqrt 3) x 1e-4 voxel sides; sampled 61.4 mm3, exact 61.7 mm3 |
+| 30 | Voxeliser: prism turned by 45 degrees with edges in a plane of rays, relative difference from the same body shifted off the rays | independent computation | 4.89e-06 | ≤ 0.001 | pass | shift (sqrt 5, sqrt 2, sqrt 3) x 1e-4 voxel sides; sampled 77.1 mm3, exact 76.9 mm3 |
+| 30 | Voxeliser: largest difference of the occupancy between 1 and 12 threads | repeatability | 0 | ≤ 0 | pass | torus and sphere minus a cylinder on 56^3 voxels of 0.5 mm |
+| 31 | Voxel model: design box, nested solid box, void cylinder; largest relative difference of the active and held-solid voxel volumes from the exact volumes | closed form | 0.00126 | ≤ 0.05 | pass | part: voxels 7510, sampled 7500, exact 7500 mm3 (table: voxels against sampled 0.00129); held solid: voxels 576, exact 576 mm3 |
+| 31 | Voxel model: held-solid voxels that differ from the voxels of the nested box | closed form | 0 | ≤ 0 | pass | 576 voxels in the nested box, 576 held solid |
+| 31 | Voxel model: design and solid boxes meeting on a voxel mid-plane, inactive voxels in either box | property of the design | 0 | ≤ 0 | pass | 16 x 6 x 4 voxels; the shared layer x = 10 to 11 mm: 24 of 24 held solid (a tie at one half counts as solid) |
+| 31 | Voxel model: part symmetric about y with mirror=('y',), voxels whose class differs from their mirror's | property of the design | 0 | ≤ 0 | pass | two pads as two named solid regions; without mirror 0 voxels differ |
+| 31 | Voxel model: the same part with the void cylinder 1 mm off the plane is refused | property of the design | 0 | ≤ 0 | pass | the void region 'hole' is not mirror-symmetric about the plane y = 10.5 mm: 125.2 mm3 of its 396.7 mm3 has no mirror image (more than 0.5 %) |
+| 31 | Voxel model: a solid region 0.4 voxel sides thick is refused | property of the design | 0 | ≤ 0 | pass | the solid region 'plate' fills no voxel by majority on its own: its smallest extent is 0.4 mm, the voxel side 1 mm; use smaller voxels or a thicker region |
 
-93 passed, 0 failed, 0 not run.
+111 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 

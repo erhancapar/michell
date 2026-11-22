@@ -230,6 +230,13 @@ the goal's and the limits' values, the bounds where the object holds them, `limi
 arrays under `"arrays"`; it does not rebuild the objects, whose responses and filters are not in the files.
 Either file is read by `numpy.load` or `json.load` alone, and the bridge example writes both with `--save`.
 
+A part given as closed triangle meshes (a design region, solid and void regions, read from STL files or
+made with `michell.mesh`) becomes a grid, its active voxels and the voxels held solid with
+`michell.regions.voxel_model`; the model's `grid` and `keep_solid` go straight into `Problem` and
+`KeepSolid`, and its `to_grid` turns positions in the meshes' coordinates into those `michell.select` takes.
+How the voxeliser decides, how the classes are taken from the union of the regions, and the volume table it
+reports are in [geometry.md](geometry.md).
+
 ## Two small examples
 
 ```python

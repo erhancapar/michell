@@ -1,8 +1,8 @@
 """Type hints for the compiled Rust module (source: crates/michell-py/src/).
 
-Every array argument must be a 1-D, contiguous float64 NumPy array (``Mma.update``'s ``d_limits``: a 2-D,
-C-contiguous float64 array); anything else is refused with ``EngineError`` (code ``invalid_input``), never
-converted. Every result is a new array.
+Every array argument must be a 1-D, contiguous float64 NumPy array (``Mma.update``'s ``d_limits`` and the
+bodies of ``voxel_occupancy``: 2-D, C-contiguous float64 arrays); anything else is refused with
+``EngineError`` (code ``invalid_input``), never converted. Every result is a new array.
 """
 
 import numpy as np
@@ -282,6 +282,26 @@ def member_size(
     g = (1/n) sum_e P(f_e) exp(-c |grad f|_e^2) [min(f_e - t_e, 0)]^2 over the active elements, with the
     gradient per element side, n the number of active elements and t_e the entry of ``thresholds`` (one per
     element, each between 0 and 1) for element e; returns g and dg/df."""
+
+def voxel_occupancy(
+    counts: tuple[int, int, int],
+    voxel_mm: float,
+    origin_mm: tuple[float, float, float],
+    adding: list[tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]],
+    subtracting: list[tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]] = ...,
+    rays_per_side: int = 3,
+    threads: int = 1,
+) -> Vector:
+    """The occupancy of every voxel of a grid of ``counts`` (nx, ny, nz) voxels of side ``voxel_mm``, the
+    corner of voxel (0, 0, 0) at ``origin_mm`` in the meshes' coordinates: the share of the voxel inside the
+    union of the ``adding`` bodies minus the union of the ``subtracting`` bodies, one entry per voxel in the
+    order of ``Grid3d``. Each body is a pair (vertices, triangles), float64 arrays of shape (n, 3) in mm and
+    (m, 3) of whole-number vertex indices, closed and facing outward. Rays along x through every voxel
+    column, ``rays_per_side`` x ``rays_per_side`` of them at the centres of its sub-squares; on each ray the
+    length inside every voxel is exact. A ray through an edge or a vertex counts it once (see
+    ``docs/design/geometry.md``); triangles parallel to the rays are ignored. Runs on ``threads`` threads;
+    the numbers do not depend on the thread count or on the order of the triangles. A body that a ray finds
+    not closed is refused with code ``invalid_input``, naming the body and the ray."""
 
 class Oc:
     """The optimality-criteria update of the 88-line code: one goal, one limit linear in the density."""

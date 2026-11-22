@@ -6,8 +6,10 @@ it is given: its solver is conjugate gradients preconditioned by one multigrid V
 matrices, damped Jacobi smoothing, a direct solve on the coarsest level), and it checks when it is built that
 the part is held (see "Errors"). The Helmholtz filter (`HelmholtzFilter`) and the density filter on the 3D
 grid exist, on threads like the 3D analysis; the projection (`Projection`) and the member-size limit
-(`member_size`) work on a field of either grid. The rest of the table below
-is planned.
+(`member_size`) work on a field of either grid. The voxeliser (`voxel_occupancy`), which turns closed
+triangle meshes into the occupancy of every voxel of a grid, exists, on threads like the 3D analysis; the
+meshes and the voxel model built from them are Python (`michell.mesh`, `michell.regions`; see
+[geometry.md](geometry.md)). The rest of the table below is planned.
 
 ## The rule
 
@@ -17,11 +19,12 @@ or change.**
 | Rust engine (`crates/michell`) | Python (`python/michell`) |
 |---|---|
 | the grid and its numbering | reading the problem file and checking it |
-| element stiffness and conductivity | reading STEP and STL, turning them into voxels |
+| element stiffness and conductivity | reading STEP and STL files, building the voxel model from the regions |
 | the linear solver (direct in 2D, multigrid in 3D) | the optimisation loop itself |
 | the built-in filters (density, projection, symmetry) | response modules (goals and limits) |
 | the optimisers' update step (OC, MMA) | manufacturing rules written as filters |
 | heavy helpers (strain energy, stress per element) | the finished mesh, the report, the command line |
+| the voxeliser (the loop over rays and triangles) | |
 
 The optimisation loop is deliberately in Python: it is about thirty lines, each heavy step is one call into
 the engine, and anyone can read it or write their own. The cost of the Python layer is a handful of calls per
@@ -48,6 +51,7 @@ objects. Planned objects, with the [milestone](../roadmap.md) that brings them:
 | `Oc` | `update(x, d_goal, d_limit, limit_weights, limit_bound, filter=None) -> x`: the classic update for one limit, measured on the filtered field | 1 |
 | `Mma` | built from the bounds of the variables and the number of limits; `update(x, goal, d_goal, limits, d_limits) -> x`, with the limits written f_i(x) <= 0 and `d_limits` one row per limit; it remembers the two previous designs | 1 |
 | `dot` (a function) | `dot(a, b) -> float`: the dot product of two vectors, summed in index order, for the products of the optimisation loop (see "Threads") | 1 |
+| `voxel_occupancy` (a function) | `voxel_occupancy(counts, voxel_mm, origin_mm, adding, subtracting=[], rays_per_side=3, threads=1) -> occupancy`: the share of every voxel inside the union of the `adding` bodies minus the union of the `subtracting` ones, each body a pair of arrays (vertices (n, 3) in mm, triangles (m, 3) of whole-number indices, both float64) | 3 |
 | `HeatConduction` | same shape as `Elasticity` | 4 |
 
 Array rules:
@@ -56,8 +60,8 @@ Array rules:
    on the grid of `(nx+1, ny+1, nz+1)` points. A node's degrees of freedom are stored together: `3n, 3n+1, 3n+2`
    for x, y, z displacement (in 2D: `2n, 2n+1`).
 2. **Inputs are never converted.** The engine accepts a contiguous float64 array and refuses anything else
-   (wrong type, wrong length, not contiguous) with a clear error; a 2-D input (the limits' gradients of `Mma`)
-   must also be row-major (C order). A short call reads the array in place. A long call (a solve, the
+   (wrong type, wrong length, not contiguous) with a clear error; a 2-D input (the limits' gradients of `Mma`,
+   the bodies of `voxel_occupancy`) must also be row-major (C order). A short call reads the array in place. A long call (a solve, the
    Helmholtz filter, the density filter on a 3D grid) copies its inputs once before it releases Python's
    lock, so that another Python thread cannot change them halfway; the copy costs far less than the work.
    The engine never keeps a pointer to an input after the call returns.
@@ -70,7 +74,7 @@ Array rules:
 ## Threads
 
 A long call (a solve, an optimiser update, the Helmholtz filter, which solves a linear system, the density
-filter on a 3D grid) copies its inputs and then releases Python's global lock, so other Python threads keep
+filter on a 3D grid, the voxeliser) copies its inputs and then releases Python's global lock, so other Python threads keep
 running; a short call (the density filter on a 2D grid, the projection, the member-size limit, a per-element
 quantity) keeps the lock and reads in place.
 The number of threads is an explicit input (problem file or argument), never a guess from the environment, and
@@ -90,7 +94,8 @@ count the same way, `HelmholtzFilter(grid, radius, threads=1)`, as does the dens
 `DensityFilter(grid, radius, threads=1, *, outside="closed", inactive="closed")` (the last two say what lies
 beyond each face and in the inactive elements; they are checked when the filter is built, and the default
 gives the numbers of the filter without them, bit for bit), and so does a 3D `Problem`, which hands it to its analysis; the
-thread count is written into the result of an optimisation (`Result.threads`). The 2D analysis, the density
+thread count is written into the result of an optimisation (`Result.threads`). The voxeliser takes it as
+an argument too, `voxel_occupancy(..., threads=1)`, and `voxel_model(..., threads=1)` hands it on. The 2D analysis, the density
 filter on a 2D grid (which refuses a thread count other than 1), the projection, the member-size limit and
 the OC update run on one thread. The MMA update takes its thread count the same way, `Mma(x_min, x_max,
 n_limits, threads=1)`; `MovingAsymptotes` hands it the problem's.
@@ -108,7 +113,8 @@ blocks of a fixed length that does not depend on the thread count, each block su
 block sums added in order. Every other step writes separate pieces of its output (the entries of one node, the
 value of one element), each computed with the same arithmetic whichever thread runs it. Verification row 15
 compares the numbers of runs on several thread counts, the Helmholtz filter's and the 3D density filter's
-included.
+included. The voxeliser computes every voxel column on its own from the inputs, so its numbers are the same on
+every thread count (verification row 30).
 
 The engine keeps no solution from one call to the next: a call's output depends only on its inputs. A warm
 start is therefore an input. The 3D `solve` takes a first guess `start=`, and the optimisation loop hands

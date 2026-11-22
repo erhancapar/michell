@@ -22,10 +22,16 @@ compliances, and checks the minimum member size as a limit (Zhou, Lazarov, Wang 
 Appl. Mech. Engrg. 293, 2015) on thin and thick members and on an optimised beam, whose members it measures by
 a morphological opening; and it runs the two-step procedure of `michell.recipes` (the robust formulation,
 then the member-size limit) on a 3D bridge and measures the design it returns, and checks that elements held solid
-(`KeepSolid`) stay solid and carry no derivative, also through a short optimisation. The measure, the set-up and the limit of every row were fixed before its first result
-was computed, with one exception, stated in its note: in row 27 the measure and its 5 % limit were fixed before
+(`KeepSolid`) stay solid and carry no derivative, also through a short optimisation; it checks the
+voxeliser, which turns closed triangle meshes into the share of every voxel inside them, against exact
+volumes, as the voxels are halved, on bodies whose edges and vertices lie exactly on its rays and on 1 and 12
+threads, and the voxel model of a part built from design, solid and void regions. The measure, the set-up and the limit of every row were fixed before its first result
+was computed, with two exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
-were set after trial runs. Every limit is an upper bound on the measured value. Measured values are rounded
+were set after trial runs; and in row 30 the convergence measure (the largest error over 8 placements of
+each body) and the voxel sizes were set after two trial runs: one placement per size, whose error changed
+sign from size to size, then this measure at 2 to 0.25 mm, where the torus's error fell by 2.7 only from 2
+to 1 mm; its code states both. Every limit is an upper bound on the measured value. Measured values are rounded
 to three significant digits; values at the level of floating-point round-off may differ in those digits from
 one machine to another. The code of every row, with its set-up, is in `python/michell/verification/`, and
 continuous integration runs every row on each change."""

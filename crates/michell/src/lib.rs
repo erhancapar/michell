@@ -5,7 +5,8 @@
 //! product solved by conjugate gradients with a multigrid preconditioner, on as many threads as asked
 //! for) and the pieces of the optimisation loop that run over every element (the density filter on both
 //! grids, the Helmholtz filter, the projection, the member-size limit, the OC update and the method of moving
-//! asymptotes), with the dot product the loop needs. The crate contains
+//! asymptotes), with the dot product the loop needs, and the voxeliser that turns closed triangle meshes
+//! into the occupancy of every voxel of a grid. The crate contains
 //! no unsafe code.
 //! Each file has one job:
 //!
@@ -38,6 +39,11 @@
 //! - `mma`: the method of moving asymptotes (asymptotes, approximations, move limits);
 //! - `mma_subproblem`: the interior-point solver of the MMA subproblem;
 //! - `dot`: the dot product of two vectors, summed in a fixed order;
+//! - `voxel_rays`: one ray along x through closed triangle meshes: the exact test of a ray against a
+//!   triangle (with the rule for rays through edges and vertices), the crossings, the inside intervals and
+//!   how the intervals of several bodies combine;
+//! - `voxelise`: the occupancy of every voxel of a grid by a union of bodies minus another, ray by ray, on
+//!   threads;
 //! - `error`: the error type every call returns.
 
 #![forbid(unsafe_code)]
@@ -71,6 +77,8 @@ pub mod quad4;
 #[cfg(test)]
 mod smoother_study;
 pub mod threads;
+pub mod voxel_rays;
+pub mod voxelise;
 
 pub use conjugate_gradient::SolveReport;
 pub use density_filter::{DensityFilter, FilterEdge, FilterEdges};
@@ -87,6 +95,7 @@ pub use member_size::MemberSize;
 pub use mma::Mma;
 pub use oc::Oc;
 pub use projection::Projection;
+pub use voxelise::{Body, VoxelGrid, occupancy};
 
 /// The version of this crate, as written in `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -24,7 +24,12 @@ Row 28 runs the two-step procedure of ``michell.recipes.stiff_part`` on a 3D bri
 its discreteness, its members (the opening of row 27 in 3D) and what the member-size step cost in
 stiffness (SciPy; "not run" without it). Row 29 checks ``KeepSolid`` (elements held solid) on a 2D and a 3D
 part: its forward and backward maps, the derivative of the compliance on the held elements, and a short
-optimisation whose held elements must come back solid within its mass limit.
+optimisation whose held elements must come back solid within its mass limit. Row 30 checks the voxeliser
+(``michell.regions.occupancy``): boxes against their exact volumes, the convergence of a faceted sphere,
+cylinder and torus as the voxels are halved, bodies whose edges and vertices lie exactly on rays, and the
+thread count. Row 31 checks the voxel model of a part (``michell.regions.voxel_model``): its class
+volumes, a solid region nested in the design region, two regions that meet inside a voxel, the mirror option
+and the refusal of a region too thin for the voxels.
 """
 
 from __future__ import annotations
@@ -60,6 +65,7 @@ from michell.verification.analysis_rows import (
 )
 from michell.verification.calculix_rows import row_24_calculix
 from michell.verification.filter3d_rows import row_19_gradients, row_20_filter
+from michell.verification.geometry_rows import row_30_voxeliser, row_31_voxel_model
 from michell.verification.keep_solid_rows import row_29_keep_solid
 from michell.verification.mbb import MBB_CASES
 from michell.verification.member_size_rows import (
@@ -84,7 +90,7 @@ from michell.verification.robust_rows import row_21_projection, row_22_robust_gr
 
 
 def all_rows(reference: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 29 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
+    """Runs rows 1 to 31 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
     the repository: ``tests/reference``)."""
     rows = []
     rows += row_1_element_matrix()
@@ -124,6 +130,8 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_27_member_size_mbb()
     rows += row_28_recipe_bridge()
     rows += row_29_keep_solid()
+    rows += row_30_voxeliser()
+    rows += row_31_voxel_model()
     return rows
 
 
@@ -174,4 +182,6 @@ __all__ = [
     "row_27_member_size_mbb",
     "row_28_recipe_bridge",
     "row_29_keep_solid",
+    "row_30_voxeliser",
+    "row_31_voxel_model",
 ]

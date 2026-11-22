@@ -30,6 +30,13 @@ The package holds:
   ``write_result`` and ``read_result``, a ``Result`` or a ``StiffPart`` written to an ``.npz`` file (the
   arrays) and a ``.json`` file (the rest: values, limits met, stop reason, the record of every pass) and read
   back as a plain dictionary;
+- ``michell.mesh``: ``Mesh``, a closed triangle mesh in mm with its volume and its check (``closed()``),
+  ``read_stl`` and ``write_stl``, and the bodies ``box``, ``sphere``, ``cylinder`` and ``torus`` with the
+  exact volumes of their facets;
+- ``michell.regions``: ``occupancy``, the share of every voxel of a grid inside a union of meshes minus
+  another (the engine's voxeliser), and ``voxel_model``, the ``VoxelModel`` of a part from its design, solid
+  and void regions (the grid, the active and the held-solid voxels, a volume table, the bodies, an optional
+  mirror), with the warning ``VoxelVolumeDiffers``;
 - ``dot``, the dot product of two vectors in the engine, for responses (with the OpenBLAS build that NumPy
   ships, ``a @ b`` runs long products on every core);
 - ``EngineError``, the error every engine call raises; the checks written in Python raise it too, with
@@ -64,9 +71,11 @@ from michell.modules import Filter, Partials, Response
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, LimitNotMet, Pass, Result, optimise
 from michell.problem import LoadCase, Material, Problem
-from michell import export, recipes, select
+from michell import export, mesh, recipes, regions, select
 from michell.export import read_result, write_result, write_vtk
+from michell.mesh import Mesh, read_stl, write_stl
 from michell.recipes import GridTooCoarse, RecipePass, StiffPart, member_size_bound, stiff_part
+from michell.regions import VolumeRow, VoxelModel, VoxelVolumeDiffers, voxel_model
 from michell.responses import Compliance, Mass
 from michell.row import Row
 
@@ -92,6 +101,7 @@ __all__ = [
     "Mass",
     "Material",
     "MemberSize",
+    "Mesh",
     "Mma",
     "MovingAsymptotes",
     "Oc",
@@ -106,6 +116,9 @@ __all__ = [
     "Result",
     "Row",
     "StiffPart",
+    "VolumeRow",
+    "VoxelModel",
+    "VoxelVolumeDiffers",
     "__version__",
     "check_gradient",
     "check_on_small_problem",
@@ -116,13 +129,18 @@ __all__ = [
     "export",
     "member_size_bound",
     "member_threshold",
+    "mesh",
     "on",
     "optimise",
     "read_result",
+    "read_stl",
     "recipes",
+    "regions",
     "robust_designs",
     "select",
     "stiff_part",
+    "voxel_model",
     "write_result",
+    "write_stl",
     "write_vtk",
 ]

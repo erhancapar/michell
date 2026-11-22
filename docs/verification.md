@@ -188,8 +188,24 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 33 | Problem file: michell run on the example bridge, compliance in result.json against the hand-built example's | independent computation | 0 | ≤ 1e-09 | pass | 8.95 against 8.95 N mm, 1 thread(s), 140 passes; exit status 0 (0); result.json format 2, goal compliance |
 | 33 | Problem file: michell run on the example bridge, largest relative difference of the limit values in result.json from the hand-built example's | independent computation | 0 | ≤ 1e-09 | pass | mass 28.259953901057585 against 28.259953901057585 g, member-size value 9.99993061892938e-08 against 9.99993061892938e-08 |
 | 33 | Problem file: michell run on the example bridge, entries of limits_met in result.json that differ from the hand-built example's | independent computation | 0 | ≤ 0 | pass | limits_met [True, True] against [True, True] |
+| 34 | Iso-surface: sphere's distance field at 1, 0.5 and 0.25 mm, defects plus bodies other than one plus genus other than 0 | property of the design | 0 | ≤ 0 | pass | 1 mm: 11236 triangles, 1 body, genus 0; 0.5 mm: 45072 triangles, 1 body, genus 0; 0.25 mm: 180428 triangles, 1 body, genus 0 |
+| 34 | Iso-surface: sphere, largest ratio of the volume error after a halving of the spacing to before it | convergence | 0.25 | ≤ 0.333 | pass | relative volume errors 1 mm: 0.00501, 0.5 mm: 0.00125, 0.25 mm: 0.000312; ratios 0.249, 0.25 |
+| 34 | Iso-surface: sphere, relative volume error at 0.25 mm | closed form | 0.000312 | < 0.002 | pass | against 4/3 pi r^3, r = 10 mm |
+| 34 | Iso-surface: sphere, relative area error at 0.25 mm | closed form | 0.00016 | < 0.01 | pass | against 4 pi r^2; at 1, 0.5 mm: 0.00258, 0.000643 |
+| 34 | Iso-surface: torus's field at 0.5 mm, defects plus bodies other than one plus genus other than 1 | property of the design | 0 | ≤ 0 | pass | 66336 triangles, 1 body, genus 1, Euler characteristic 0 |
+| 34 | Iso-surface: torus at 0.5 mm, relative volume error | closed form | 0.00262 | ≤ 0.005 | pass | against 2 pi^2 R r^2 = 3790 mm3; surface 3780 mm3 |
+| 34 | Iso-surface: two spheres 11 mm apart (joined), defects plus a body count other than 1 | property of the design | 0 | ≤ 0 | pass | 1 body, 30672 triangles |
+| 34 | Iso-surface: two spheres 12 mm apart (touching), defects plus a body count other than 1 or 2 | property of the design | 0 | ≤ 0 | pass | 1 body, 31896 triangles; the spheres meet at a lattice point exactly at the level, which counts as inside |
+| 34 | Iso-surface: two spheres 13 mm apart (apart), defects plus a body count other than 2 | property of the design | 0 | ≤ 0 | pass | 2 bodies, 31920 triangles |
+| 34 | Iso-surface: fields with whole layers of samples at the level, defects (no triangle without area) | property of the design | 0 | ≤ 0 | pass | box stepped 0, 0.5, 1 and two sheets one cell thick, 0.5 mm |
+| 34 | Iso-surface: fields with whole layers of samples at the level, pairs of vertices closer than 1e-9 mm | property of the design | 0 | ≤ 0 | pass | box stepped 0, 0.5, 1: 6624 triangles, smallest gap between vertices 0.0005 mm; sheet one cell thick at 1: 2488 triangles, smallest gap between vertices above 0.125 mm; sheet one cell thick at the level: 2488 triangles, smallest gap between vertices 0.0005 mm |
+| 34 | Iso-surface: torus at 0.25 mm on 1 and 12 threads, entries of the vertices and triangles that differ | repeatability | 0 | ≤ 0 | pass | 145 x 145 x 49 points; 133768 vertices, 267536 triangles |
+| 35 | Taubin smoothing: torus surface, 50 iterations, defects plus genus other than 1 | property of the design | 0 | ≤ 0 | pass | 1 body, genus 1; largest move of a vertex 0.402 mm |
+| 35 | Taubin smoothing: torus surface, 50 iterations, relative change of the volume | property of the design | 0.00383 | < 0.02 | pass | roughness (mean angle between neighbouring normals) 2.14 degrees before, 1.87 after; lam 0.5, mu -0.53 |
+| 35 | 3MF: torus surface written and read back, entries of the vertices and triangles that differ | property of the design | 0 | ≤ 0 | pass | 33168 vertices, 66336 triangles; file 0.824 MB |
+| 35 | 3MF: parts of the package missing from or beyond the three required | property of the design | 0 | ≤ 0 | pass | [Content_Types].xml, _rels/.rels, 3D/3dmodel.model |
 
-149 passed, 0 failed, 0 not run.
+165 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 

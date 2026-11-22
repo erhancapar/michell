@@ -15,7 +15,8 @@
 //! - `oc`: `michell.Oc`, the optimality-criteria update;
 //! - `mma`: `michell.Mma`, the method of moving asymptotes;
 //! - `dot`: `michell.dot`, the dot product of two vectors;
-//! - `voxelise`: `voxel_occupancy`, the share of every voxel inside a combination of closed meshes.
+//! - `voxelise`: `voxel_occupancy`, the share of every voxel inside a combination of closed meshes;
+//! - `iso_surface`: `iso_surface`, the closed surface where a field sampled on a lattice equals a level.
 
 mod arrays;
 mod dot;
@@ -26,6 +27,7 @@ mod filter;
 mod grid;
 mod grid3d;
 mod helmholtz_filter;
+mod iso_surface;
 mod member_size;
 mod mma;
 mod oc;
@@ -55,6 +57,8 @@ mod _engine {
     use super::grid3d::Grid3d;
     #[pymodule_export]
     use super::helmholtz_filter::HelmholtzFilter;
+    #[pymodule_export]
+    use super::iso_surface::iso_surface;
     #[pymodule_export]
     use super::member_size::member_size;
     #[pymodule_export]

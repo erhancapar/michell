@@ -2,8 +2,10 @@
 
 Status: design note, kept in step with the code. Closed triangle meshes (`michell.mesh`), the voxeliser
 (the engine's `voxel_occupancy`, in Python `michell.regions.occupancy`), the voxel model of a part
-(`michell.regions.voxel_model`) and supports and loads on that model (`michell.attach`) exist. Reading
-STEP and the problem file are planned (see the [roadmap](../roadmap.md)).
+(`michell.regions.voxel_model`), supports and loads on that model (`michell.attach`), and the tools that turn
+a field sampled on a lattice into a smooth closed surface (`michell.surface`: the iso-surface, refining and
+smoothing; the measures of a mesh and 3MF files in `michell.mesh`) exist. Reading STEP and turning an
+optimised design into the part's mesh are planned (see the [roadmap](../roadmap.md)).
 
 ## Meshes
 
@@ -185,3 +187,145 @@ against the true length, off by the voxel model's error in length, at most half 
 a bore loaded through a pin with
 the held skin in a short run of `stiff_part`, and the example bridge set up from regions and marker bodies,
 which gives the example's arrays entry for entry.
+
+## From a field to a closed surface
+
+`michell.surface` turns a scalar field sampled on a regular lattice into a closed triangle mesh, and smooths
+it; `michell.mesh` measures meshes and writes and reads 3MF files. None of it knows about an optimisation:
+which field to mesh, at which level, and how the surface meets the exact regions belong to the step that
+builds a part's mesh from a result.
+
+- **The field.** `ScalarField(values, spacing_mm, origin_mm)` holds samples on a lattice of points
+  `spacing_mm` apart: `values[k, j, i]` is the sample at `origin_mm + (i, j, k) * spacing_mm`, so x runs
+  fastest in memory, as in `Grid3d`. The cells are the cubes between neighbouring points.
+
+### The iso-surface
+
+`iso_surface(field, level, threads=1)` returns the surface where the field equals `level`, with the side of
+larger values inside, as a `Mesh` facing outward. The loop over cells is the engine's (`iso_surface.rs`,
+`tetrahedra.rs`).
+
+- **Method: marching tetrahedra** (Doi and Koide 1991) on one split of every cell into six tetrahedra, the
+  split of Kuhn (1960) and Freudenthal (1942): one tetrahedron per order of the three axes, running from the
+  cell's lowest corner one step along each axis in that order to its highest corner, so that all six share
+  the body diagonal from the lowest to the highest corner. Each face of a cell is then cut along the diagonal
+  through its lowest and highest corners, and so is the same face seen from the neighbouring cell: the
+  tetrahedra of the whole lattice meet face to face. Every edge of a tetrahedron runs from a lattice point by
+  one of seven offsets: along x, y or z, along a face diagonal (xy, xz, yz) or along the body diagonal (xyz).
+- **The level rule.** A sample is inside when it is at least the level (f >= L), outside when it is below
+  it; there is no third case. A vertex lies on every edge of the tetrahedra whose two ends are on different
+  sides, at the share t = (f_in - L) / (f_in - f_out) of the edge from its inside end (linear
+  interpolation), with t kept at least a thousandth of the edge from both ends (`END_GAP` = 1e-3: t is
+  raised to 0.001 or lowered to 0.999 where it falls outside). A sample exactly at the level is therefore
+  inside, and the surface passes a thousandth of an edge beyond it: a layer of samples at the level gives a
+  flat surface just outside that layer, and a sheet one point thick at the level gives a slab two
+  thousandths of an edge thick. The end gap keeps every vertex off the lattice points, so vertices on
+  different edges never coincide: two vertices near one point lie on edges from that point whose directions
+  differ by at least 35 degrees, and are at least about half of END_GAP times the spacing apart. A triangle
+  whose vertices crowd towards one point keeps the shape of the tetrahedron's corner, so twice its area over
+  its longest side squared stays of the order of END_GAP at least, far above the 1e-12 below which
+  `Mesh.defects()` counts a triangle as without area.
+- **Closed by construction.** Each vertex is made once, for its edge, and every triangle that uses the edge
+  names it by the same index. The piece of surface in a tetrahedron is decided by which of its four corners
+  are inside (16 cases): one triangle around a corner that differs from the other three, or a quadrilateral
+  cut in two along a fixed diagonal when two corners are inside. Every face of a tetrahedron whose corners
+  are not all on one side holds exactly one segment of the surface, between its two edges that change side,
+  and the tetrahedron on the other side of the face uses the same two vertices, so it holds the same segment.
+  The direction of every triangle is read off the case (every case is a turned copy of one of three forms
+  whose direction is fixed in a tetrahedron of positive orientation), never computed from coordinates, so
+  the two triangles of a segment run along it in opposite directions, and every triangle faces away from the
+  inside corners. On the lattice's outer layer every sample must be below the level, so no surface reaches
+  it: `iso_surface` refuses a field whose outer layer reaches the level, naming the first such sample (the
+  caller pads the field with a layer below the level), and a field that reaches the level nowhere. Hence every
+  edge of the surface lies on exactly two triangles that run along it in opposite directions, whatever the
+  field: the surface passes `Mesh.closed()`, and a vertex where two parts of the body touch is never shared,
+  since every vertex lies inside an edge.
+- **Tests.** The engine's tests check that the six tetrahedra are positive, fill the cell and cut each face
+  alike on both sides; that each of the 16 cases faces away from its inside corners in all six tetrahedra;
+  that random fields, fields of 0, the level and 1, and fields one unit in the last place either side of the
+  level give closed surfaces whose vertex count equals the number of edges that change side; and the thread
+  counts. Verification row 34 measures a sphere's distance field at three spacings against the exact volume
+  and area (the volume error falls by a factor of 4 per halving), a torus (genus 1), two spheres joined,
+  touching and apart (touching at a lattice point exactly at the level, they come out as one body joined at
+  that point), fields with whole layers of samples at the level, and the thread count.
+- **Order and threads.** The vertices are numbered by the lattice point their edge starts from and then by
+  the edge's offset; the triangles come cell by cell in the order of the points, tetrahedron by tetrahedron.
+  Every point and every cell is computed from the samples alone and the pieces are joined in that order, so
+  the vertices, the triangles and their order are bit for bit the same on every thread count.
+- **Which samples are joined: the split is not mirror-symmetric.** Two inside samples are joined by the
+  surface's body when they are the ends of an edge of the tetrahedra: neighbours along x, y and z, along the
+  face diagonals (1, 1, 0), (1, 0, 1) and (0, 1, 1), and along the body diagonal (1, 1, 1), but not along the
+  other diagonals, such as (1, -1, 0) or (1, 1, -1). Two inside samples that meet only across such a diagonal
+  (their other neighbours outside) are thus one body in one orientation and two bodies in its mirror image,
+  and where they are joined the body is one body with a neck, not two. Beyond that, the split changes only
+  where vertices lie within a cell. So the surface of a field that is its own mirror image is not exactly its
+  own mirror image, and its number of bodies and its genus can differ from those of a voxel set joined
+  through faces only, where samples meet only along a diagonal.
+
+### The measures of a mesh
+
+- `Mesh.bodies()`: the sets of triangles joined through shared edges (two triangles that share only a
+  vertex are not joined), each as a `Mesh` with its own vertices, largest first by the volume it encloses. A
+  cavity inside a solid is a body of its own, facing inward with a negative volume, so it comes after the
+  solids.
+- `Mesh.euler_characteristic()` is V - E + F (the vertices the triangles use, the edges counted once, the
+  triangles), and `Mesh.genus()` the number of through holes of one closed body, (2 - chi) / 2: 0 for a
+  sphere, 1 for a torus. It refuses a mesh that is not closed or that is more than one body.
+- `Mesh.roughness_deg()`: the mean angle between the normals of two triangles that share an edge, in
+  degrees; it falls as a faceted surface is smoothed.
+
+### Refining a field
+
+`refine(field, factor, order="cubic")` resamples the field on a lattice `factor` times finer: the spacing
+divided by `factor`, the same origin, (n - 1) factor + 1 points along an axis of n, so every old point is a
+new one and keeps its sample exactly. The new samples are interpolated one axis after the other.
+
+- `"linear"`: linear along each axis, which makes the field trilinear in each cell.
+- `"cubic"`: piecewise cubic Hermite interpolation with the slopes of Fritsch and Butland (1984), which meet
+  the condition of Fritsch and Carlson (1980) for a monotone interpolant: at a sample, the harmonic mean of
+  the differences to its two neighbours, 0 where they differ in sign or one is 0, and the one difference at
+  the ends of a line. It reproduces fields that are linear along an axis, and between two samples it never
+  leaves their range (each new sample is also held within it, which removes rounding). Its error falls with
+  the cube of the spacing where the field is monotone along the line, and with the square in the end
+  intervals of a line and next to a sample where the field turns.
+- **At a step.** Neither order overshoots. Between the 0 and the 1 of a step (0, 0, 1, 1 along an axis) the
+  cubic order gives 3 t^2 - 2 t^3, which crosses 0.5 half-way, and exactly 0 and 1 beyond them; a 0/1 field
+  stays within [0, 1]. A cubic convolution (Catmull-Rom) was not used: it overshoots by 2/27 on each side of
+  such a step, about 1.24 at a corner of a box, and can lift a sample of the outer layer above the level. With
+  the monotone order the new samples of the outer layer come from the old ones of the outer layer alone and
+  stay within their range, so a field whose outer layer is below a level stays so after refining.
+
+### Smoothing
+
+`smooth(mesh, iterations, lam=0.5, mu=-0.53, fixed=None)` is Taubin's smoothing (Taubin 1995): each iteration
+is a step x += lam L(x) followed by a step x += mu L(x), with L(x) at a vertex the mean of its neighbours
+(the vertices it shares an edge with) minus the vertex. The first step smooths and shrinks, the second, with
+mu < -lam, swells the surface back, so the shape keeps its size while short ripples die out. Vertices marked
+in `fixed` stay where they are and still pull their neighbours. It moves vertices only and never changes the
+triangles, so a closed mesh stays closed (a vertex can still be pulled through a neighbouring triangle on a
+very thin wall; the closedness of the mesh by its edges is not affected). The result, a `Smoothing`, gives the
+largest move of a vertex and the volumes before and after. The neighbours' weights are equal, so the steps
+also slide vertices along the surface towards an even spacing: on the torus of row 35, 50 iterations move a
+vertex by up to 0.4 mm on a 0.5 mm lattice while the volume changes by 0.4 %.
+
+It is written with NumPy: each step is three sums over the edges (`numpy.bincount`). On a surface of 1.16
+million triangles (the sphere-like field on a lattice of 300 x 200 x 200 points) an iteration takes about 0.13
+s on one core and 50 iterations 6.4 s, against 0.25 s for the iso-surface itself on 4 threads and the minutes
+an optimisation of such a part takes, so it is not moved into the engine.
+
+### 3MF files
+
+`write_3mf(path, mesh, unit="millimeter")` writes a closed mesh (`Mesh.closed()`, which turns a mesh facing
+inward the right way out; anything not closed is refused) as a 3MF package (3MF Core Specification 1.4.0)
+with one object: a zip archive, deflated, of `[Content_Types].xml` (written first), `_rels/.rels`, whose one
+relationship names the model part, and `3D/3dmodel.model`, a `model` in the core namespace
+(`http://schemas.microsoft.com/3dmanufacturing/core/2015/02`) with one `object` of type "model" holding the
+`mesh` (`vertices` and `triangles`) and a `build` of one `item`. Every part carries the same fixed date, so the
+same mesh gives the same bytes. Each coordinate is written as the shortest decimal that reads back to the same
+float64 (Python's `repr`), so in millimetres the vertices read back bit for bit; in another unit (`micron`,
+`centimeter`, `inch`, `foot`, `meter`) the coordinates are divided by the unit's size in mm and multiplied back on
+reading. `read_3mf(path)` reads such a package: exactly those three parts (the model part as the relationship
+names it), one object with one mesh, one build item without a transform; anything else (more parts, objects,
+components, materials, transforms, extensions, other elements or attributes) is refused with a message that
+names it, never skipped. Verification row 35 writes the torus of row 34 and reads it back, and checks the
+smoothing of that torus.

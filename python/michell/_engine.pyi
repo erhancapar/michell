@@ -304,6 +304,24 @@ def voxel_occupancy(
     the numbers do not depend on the thread count or on the order of the triangles. A body that a ray finds
     not closed is refused with code ``invalid_input``, naming the body and the ray."""
 
+def iso_surface(
+    counts: tuple[int, int, int],
+    spacing_mm: float,
+    origin_mm: tuple[float, float, float],
+    values: Vector,
+    level: float,
+    threads: int = 1,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """The closed surface where ``values`` equal ``level`` on a lattice of ``counts`` (nx, ny, nz) points
+    ``spacing_mm`` apart, point (0, 0, 0) at ``origin_mm``; ``values`` holds one sample per point, x fastest.
+    Marching tetrahedra on the split of every cell into six tetrahedra around the same body diagonal; a
+    sample is inside when it is at least the level, and every vertex keeps a thousandth of its edge from
+    both ends (see ``docs/design/geometry.md``). Returns the vertices, shape (n, 3) in mm, and the triangles,
+    shape (m, 3) of whole-number vertex indices as float64, counter-clockwise seen from outside (the side of
+    larger values is inside). Every sample on the lattice's outer layer must be below the level; a field
+    whose outer layer reaches it, or that reaches it nowhere, is refused with code ``invalid_input``. Runs
+    on ``threads`` threads; the result does not depend on the thread count."""
+
 class Oc:
     """The optimality-criteria update of the 88-line code: one goal, one limit linear in the density."""
 

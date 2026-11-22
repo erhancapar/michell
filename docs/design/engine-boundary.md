@@ -9,7 +9,10 @@ grid exist, on threads like the 3D analysis; the projection (`Projection`) and t
 (`member_size`) work on a field of either grid. The voxeliser (`voxel_occupancy`), which turns closed
 triangle meshes into the occupancy of every voxel of a grid, exists, on threads like the 3D analysis; the
 meshes and the voxel model built from them are Python (`michell.mesh`, `michell.regions`; see
-[geometry.md](geometry.md)). The rest of the table below is planned.
+[geometry.md](geometry.md)). The iso-surface (`iso_surface`), which turns a field sampled on a lattice into a
+closed triangle surface by marching tetrahedra, exists, on threads like the voxeliser; refining the field,
+smoothing the surface, the measures of a mesh and 3MF files are Python (`michell.surface`, `michell.mesh`).
+The rest of the table below is planned.
 
 ## The rule
 
@@ -24,7 +27,8 @@ or change.**
 | the built-in filters (density, projection, symmetry) | response modules (goals and limits) |
 | the optimisers' update step (OC, MMA) | manufacturing rules written as filters |
 | heavy helpers (strain energy, stress per element) | the finished mesh, the report, the command line |
-| the voxeliser (the loop over rays and triangles) | |
+| the voxeliser (the loop over rays and triangles) | refining a field, smoothing a surface (three sums per step) |
+| the iso-surface (the loop over lattice cells) | the bodies and genus of a mesh, STL and 3MF files |
 
 The optimisation loop is deliberately in Python: it is about thirty lines, each heavy step is one call into
 the engine, and anyone can read it or write their own. The cost of the Python layer is a handful of calls per
@@ -52,6 +56,7 @@ objects. Planned objects, with the [milestone](../roadmap.md) that brings them:
 | `Mma` | built from the bounds of the variables and the number of limits; `update(x, goal, d_goal, limits, d_limits) -> x`, with the limits written f_i(x) <= 0 and `d_limits` one row per limit; it remembers the two previous designs | 1 |
 | `dot` (a function) | `dot(a, b) -> float`: the dot product of two vectors, summed in index order, for the products of the optimisation loop (see "Threads") | 1 |
 | `voxel_occupancy` (a function) | `voxel_occupancy(counts, voxel_mm, origin_mm, adding, subtracting=[], rays_per_side=3, threads=1) -> occupancy`: the share of every voxel inside the union of the `adding` bodies minus the union of the `subtracting` ones, each body a pair of arrays (vertices (n, 3) in mm, triangles (m, 3) of whole-number indices, both float64) | 3 |
+| `iso_surface` (a function) | `iso_surface(counts, spacing_mm, origin_mm, values, level, threads=1) -> (vertices, triangles)`: the closed surface where `values` (one sample per point of a lattice of `counts` points, x fastest) equal `level`, the side of larger values inside; vertices (n, 3) in mm and triangles (m, 3) of whole-number indices, both float64 | 3 |
 | `HeatConduction` | same shape as `Elasticity` | 4 |
 
 Array rules:
@@ -74,7 +79,7 @@ Array rules:
 ## Threads
 
 A long call (a solve, an optimiser update, the Helmholtz filter, which solves a linear system, the density
-filter on a 3D grid, the voxeliser) copies its inputs and then releases Python's global lock, so other Python threads keep
+filter on a 3D grid, the voxeliser, the iso-surface) copies its inputs and then releases Python's global lock, so other Python threads keep
 running; a short call (the density filter on a 2D grid, the projection, the member-size limit, a per-element
 quantity) keeps the lock and reads in place.
 The number of threads is an explicit input (problem file or argument), never a guess from the environment, and
@@ -95,7 +100,8 @@ count the same way, `HelmholtzFilter(grid, radius, threads=1)`, as does the dens
 beyond each face and in the inactive elements; they are checked when the filter is built, and the default
 gives the numbers of the filter without them, bit for bit), and so does a 3D `Problem`, which hands it to its analysis; the
 thread count is written into the result of an optimisation (`Result.threads`). The voxeliser takes it as
-an argument too, `voxel_occupancy(..., threads=1)`, and `voxel_model(..., threads=1)` hands it on. The 2D analysis, the density
+an argument too, `voxel_occupancy(..., threads=1)`, and `voxel_model(..., threads=1)` hands it on; so does
+the iso-surface, `iso_surface(..., threads=1)`. The 2D analysis, the density
 filter on a 2D grid (which refuses a thread count other than 1), the projection, the member-size limit and
 the OC update run on one thread. The MMA update takes its thread count the same way, `Mma(x_min, x_max,
 n_limits, threads=1)`; `MovingAsymptotes` hands it the problem's.
@@ -114,7 +120,9 @@ block sums added in order. Every other step writes separate pieces of its output
 value of one element), each computed with the same arithmetic whichever thread runs it. Verification row 15
 compares the numbers of runs on several thread counts, the Helmholtz filter's and the 3D density filter's
 included. The voxeliser computes every voxel column on its own from the inputs, so its numbers are the same on
-every thread count (verification row 30).
+every thread count (verification row 30). The iso-surface computes every lattice point's vertices and every
+cell's triangles from the samples alone and joins them in the order of the points, so its vertices, its
+triangles and their order are the same on every thread count (verification row 34).
 
 The engine keeps no solution from one call to the next: a call's output depends only on its inputs. A warm
 start is therefore an input. The 3D `solve` takes a first guess `start=`, and the optimisation loop hands

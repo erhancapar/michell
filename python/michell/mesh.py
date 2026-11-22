@@ -3,8 +3,13 @@
 - ``Mesh(vertices, triangles)``: vertices as an (n, 3) array in mm, triangles as an (m, 3) array of vertex
   indices, both kept read-only; ``volume_mm3``, ``area_mm2`` and ``bounds``. ``Mesh.closed()`` returns the
   mesh ready for the voxeliser or refuses it with the numbers of what is wrong.
+- Measures of the surface: ``bodies()`` (the connected sets of triangles, each as a ``Mesh``),
+  ``euler_characteristic()``, ``genus()`` (the number of through holes of a closed body) and
+  ``roughness_deg()`` (the mean angle between the normals of neighbouring triangles).
 - ``read_stl(path, merge_mm=0.0)`` reads a binary or an ASCII STL file and joins equal vertices;
   ``write_stl(path, mesh)`` writes a binary one.
+- ``write_3mf(path, mesh, unit="millimeter")`` writes a closed mesh as a 3MF package with one object;
+  ``read_3mf(path)`` reads such a package back.
 - ``box``, ``sphere``, ``cylinder`` and ``torus`` make closed, outward-facing meshes. Each docstring states
   the exact volume of the faceted body (not of the smooth shape it approximates): that is the volume a
   voxelisation of it converges to.
@@ -19,6 +24,8 @@ from __future__ import annotations
 import math
 import numbers
 import re
+import xml.etree.ElementTree as ElementTree
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -144,6 +151,84 @@ class Mesh:
             "zero_area_triangles": int(np.count_nonzero(zero_area)),
         }
 
+    def _edge_owners(self) -> tuple[np.ndarray, np.ndarray]:
+        """Every corner edge of every triangle as an undirected key (low * n + high), sorted, with the
+        triangle it belongs to: the triangles of one edge are neighbours in the two arrays."""
+        t = self._triangles
+        n = max(len(self._vertices), 1)
+        pairs = np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]])
+        keys = pairs.min(axis=1) * n + pairs.max(axis=1)
+        owners = np.tile(np.arange(len(t)), 3)
+        order = np.argsort(keys, kind="stable")
+        return keys[order], owners[order]
+
+    def _body_labels(self) -> np.ndarray:
+        """For each triangle the smallest index of the triangles joined to it through shared edges."""
+        keys, owners = self._edge_owners()
+        same = keys[1:] == keys[:-1]
+        return smallest_joined(len(self._triangles), owners[:-1][same], owners[1:][same])
+
+    def bodies(self) -> list[Mesh]:
+        """The bodies of the mesh: the sets of triangles joined through shared edges (two triangles that
+        share only a vertex are not joined), each as a ``Mesh`` of its own triangles (in their order) and
+        of the vertices they use (in their order). Largest first: by the volume each encloses, then by the
+        index of its first triangle. A cavity inside a solid is a body of its own, facing inward, with a
+        negative volume, so it comes after the solids."""
+        labels = self._body_labels()
+        order = np.argsort(labels, kind="stable")
+        starts = np.flatnonzero(np.concatenate([[True], labels[order][1:] != labels[order][:-1]]))
+        bodies = []
+        for members in np.split(order, starts[1:]) if len(order) else []:
+            triangles = self._triangles[members]
+            used = np.unique(triangles)
+            body = Mesh(self._vertices[used], np.searchsorted(used, triangles))
+            bodies.append((-body.volume_mm3, int(members[0]), body))
+        bodies.sort(key=lambda entry: entry[:2])
+        return [body for _, _, body in bodies]
+
+    def euler_characteristic(self) -> int:
+        """V - E + F: the vertices the triangles use, the edges (each pair of vertices joined by a side of a
+        triangle, counted once) and the triangles. A closed body with g through holes has 2 - 2 g."""
+        keys, _ = self._edge_owners()
+        edges = int(np.count_nonzero(np.concatenate([[True], keys[1:] != keys[:-1]]))) if len(keys) else 0
+        return len(np.unique(self._triangles)) - edges + len(self._triangles)
+
+    def genus(self) -> int:
+        """The number of through holes of a closed body: (2 - ``euler_characteristic()``) / 2, 0 for a
+        sphere and 1 for a torus. Refused for a mesh that is not closed (every edge on exactly two
+        triangles in opposite directions, ``defects()``) or that is more than one body (``bodies()``)."""
+        if len(self._triangles) == 0:
+            raise InvalidValue("the mesh has no triangles, so it has no genus")
+        found = self.defects()
+        edge_faults = {name: found[name] for name in ("open_edges", "edges_on_more_than_two", "edges_same_direction")}
+        if any(edge_faults.values()):
+            listed = ", ".join(f"{count} {name.replace('_', ' ')}" for name, count in edge_faults.items() if count)
+            raise InvalidValue(f"the genus is that of a closed body; the mesh is not closed: {listed}", edge_faults)
+        count = len(np.unique(self._body_labels()))
+        if count != 1:
+            raise InvalidValue(
+                f"the genus is that of one body; the mesh has {count} (take each of bodies())", {"bodies": count}
+            )
+        return (2 - self.euler_characteristic()) // 2
+
+    def roughness_deg(self) -> float:
+        """The mean angle between the normals of two triangles that share an edge, in degrees, over the
+        edges that lie on exactly two triangles with area: 0 for a flat surface; it falls as a faceted
+        surface is smoothed. 0 when there is no such edge."""
+        a, b, c = self._corners()
+        normal = np.cross(b - a, c - a)
+        length = np.linalg.norm(normal, axis=1)
+        unit = np.divide(normal, length[:, None], out=np.zeros_like(normal), where=length[:, None] > 0)
+        keys, owners = self._edge_owners()
+        _, start, count = np.unique(keys, return_index=True, return_counts=True)
+        pair = count == 2
+        first, second = owners[start[pair]], owners[start[pair] + 1]
+        with_area = (length[first] > 0) & (length[second] > 0)
+        cosine = np.einsum("ij,ij->i", unit[first[with_area]], unit[second[with_area]])
+        if len(cosine) == 0:
+            return 0.0
+        return float(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))).mean())
+
     def closed(self) -> Mesh:
         """The mesh, checked to bound a body: every edge on exactly two triangles that run along it in
         opposite directions, and no triangle without area (``defects()``). It is refused with
@@ -240,8 +325,18 @@ _HALF_NEIGHBOURS = [o for o in np.ndindex(3, 3, 3) if (o[0] - 1, o[1] - 1, o[2] 
 
 def _close_groups(vertices: np.ndarray, tolerance: float) -> np.ndarray:
     """For each vertex the smallest index of the vertices joined to it by chains of steps no longer than
-    ``tolerance``. Vertices closer than the tolerance lie in the same or in neighbouring cells of side
-    ``tolerance``, so only those pairs are measured."""
+    ``tolerance``."""
+    first, second = close_pairs(vertices, tolerance)
+    return smallest_joined(len(vertices), first, second)
+
+
+def close_pairs(vertices: np.ndarray, tolerance: float) -> tuple[np.ndarray, np.ndarray]:
+    """The pairs of vertices (first[i], second[i], each pair once) no farther apart than ``tolerance``
+    (mm, above 0). Vertices that close lie in the same or in neighbouring cells of side ``tolerance``, so
+    only those pairs are measured."""
+    vertices = np.asarray(vertices, dtype=np.float64)
+    if len(vertices) < 2:
+        return np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64)
     cells = np.floor((vertices - vertices.min(axis=0)) / tolerance).astype(np.int64)
     keys, cell_of = np.unique(cells, axis=0, return_inverse=True)
     cell_of = cell_of.ravel()
@@ -274,7 +369,7 @@ def _close_groups(vertices: np.ndarray, tolerance: float) -> np.ndarray:
         second_parts.append(second[keep])
     first = np.concatenate(first_parts) if first_parts else np.zeros(0, dtype=np.int64)
     second = np.concatenate(second_parts) if second_parts else np.zeros(0, dtype=np.int64)
-    return smallest_joined(len(vertices), first, second)
+    return first, second
 
 
 def smallest_joined(n: int, first: np.ndarray, second: np.ndarray) -> np.ndarray:
@@ -312,6 +407,177 @@ def write_stl(path, mesh: Mesh) -> None:
     records["normal"] = normal
     records["corners"] = mesh.vertices[mesh.triangles]
     Path(path).write_bytes(_STL_HEADER + len(records).to_bytes(4, "little") + records.tobytes())
+
+
+# ---------------------------------------------------------------------------------------------------------
+# 3MF files (3MF Core Specification 1.4.0): a zip package of three parts.
+
+_3MF_MODEL_PART = "3D/3dmodel.model"
+_3MF_PARTS = ("[Content_Types].xml", "_rels/.rels", _3MF_MODEL_PART)
+_3MF_CORE = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+_3MF_MODEL_RELATIONSHIP = "http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"
+_OPC_RELATIONSHIPS = "http://schemas.openxmlformats.org/package/2006/relationships"
+_OPC_CONTENT_TYPES = "http://schemas.openxmlformats.org/package/2006/content-types"
+# The units a 3MF model may be written in, with their size in mm.
+UNITS_3MF = {"micron": 0.001, "millimeter": 1.0, "centimeter": 10.0, "inch": 25.4, "foot": 304.8, "meter": 1000.0}
+_CONTENT_TYPES_XML = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    f'<Types xmlns="{_OPC_CONTENT_TYPES}">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>'
+    "</Types>\n"
+)
+_RELS_XML = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    f'<Relationships xmlns="{_OPC_RELATIONSHIPS}">'
+    f'<Relationship Target="/{_3MF_MODEL_PART}" Id="rel0" Type="{_3MF_MODEL_RELATIONSHIP}"/>'
+    "</Relationships>\n"
+)
+# A fixed date for every part, so the same mesh always gives the same file.
+_ZIP_DATE = (1980, 1, 1, 0, 0, 0)
+
+
+def write_3mf(path, mesh: Mesh, *, unit: str = "millimeter") -> None:
+    """Writes ``mesh`` as a 3MF package with one object: the parts ``[Content_Types].xml`` (written first),
+    ``_rels/.rels`` and ``3D/3dmodel.model``, compressed (deflate), with a fixed date so that the same mesh
+    gives the same bytes. The mesh must be closed (``Mesh.closed()``, which turns a mesh facing inward the
+    right way out, as 3MF needs its triangles counter-clockwise from outside); it is refused otherwise.
+
+    ``unit`` is one of ``UNITS_3MF``; the coordinates (mm, as every mesh in michell) are divided by the
+    unit's size in mm. Each coordinate is written as the shortest decimal that reads back to the same
+    float64 (Python's ``repr``), so in millimetres ``read_3mf`` gives back the vertices bit for bit.
+    """
+    if not isinstance(mesh, Mesh):
+        raise InvalidType(f"write_3mf writes a michell.mesh.Mesh; got {type(mesh).__name__}")
+    if unit not in UNITS_3MF:
+        raise InvalidValue(f"the unit of a 3MF file is one of {', '.join(UNITS_3MF)}; got {unit!r}")
+    mesh = mesh.closed()
+    size = UNITS_3MF[unit]
+    vertices = (mesh.vertices if size == 1.0 else mesh.vertices / size).tolist()
+    with zipfile.ZipFile(path, "w") as package:
+        for name, text in ((_3MF_PARTS[0], _CONTENT_TYPES_XML), (_3MF_PARTS[1], _RELS_XML)):
+            package.writestr(zipfile.ZipInfo(name, _ZIP_DATE), text, compress_type=zipfile.ZIP_DEFLATED)
+        model = zipfile.ZipInfo(_3MF_MODEL_PART, _ZIP_DATE)
+        model.compress_type = zipfile.ZIP_DEFLATED
+        with package.open(model, "w") as out:
+            out.write(
+                f'<?xml version="1.0" encoding="UTF-8"?>\n<model unit="{unit}" xmlns="{_3MF_CORE}">\n'
+                '<resources>\n<object id="1" type="model">\n<mesh>\n<vertices>\n'.encode()
+            )
+            for start in range(0, len(vertices), 4096):
+                lines = (f'<vertex x="{x!r}" y="{y!r}" z="{z!r}"/>\n' for x, y, z in vertices[start : start + 4096])
+                out.write("".join(lines).encode())
+            out.write(b"</vertices>\n<triangles>\n")
+            triangles = mesh.triangles.tolist()
+            for start in range(0, len(triangles), 4096):
+                lines = (f'<triangle v1="{a}" v2="{b}" v3="{c}"/>\n' for a, b, c in triangles[start : start + 4096])
+                out.write("".join(lines).encode())
+            out.write(b"</triangles>\n</mesh>\n</object>\n</resources>\n")
+            out.write(b'<build>\n<item objectid="1"/>\n</build>\n</model>\n')
+
+
+def _refuse_3mf(path, why: str) -> InvalidValue:
+    return InvalidValue(f"{path} is not a 3MF file michell reads: {why}")
+
+
+def read_3mf(path) -> Mesh:
+    """The mesh of a 3MF package as ``write_3mf`` writes it: exactly the three parts ``[Content_Types].xml``,
+    ``_rels/.rels`` and the model part its relationship names; a model in the core namespace, in one of
+    ``UNITS_3MF`` (converted to mm), with one object of type "model" holding one mesh of vertices and
+    triangles, and a build of one item placing that object without a transform. Anything else (more
+    parts, objects, components, materials, transforms, extensions, other elements or attributes) is
+    refused with a message that names it; nothing is skipped. The mesh is returned as read; ``closed()``
+    checks it."""
+    try:
+        package = zipfile.ZipFile(path)
+    except zipfile.BadZipFile as error:
+        raise _refuse_3mf(path, f"it is not a zip package ({error})") from None
+    with package:
+        names = package.namelist()
+        if "[Content_Types].xml" not in names or "_rels/.rels" not in names:
+            raise _refuse_3mf(path, "it lacks [Content_Types].xml or _rels/.rels")
+        if _parse_3mf_xml(package, "[Content_Types].xml", path).tag != f"{{{_OPC_CONTENT_TYPES}}}Types":
+            raise _refuse_3mf(path, "[Content_Types].xml does not list content types")
+        relationships = _parse_3mf_xml(package, "_rels/.rels", path)
+        found = [r for r in relationships if r.tag == f"{{{_OPC_RELATIONSHIPS}}}Relationship"]
+        models = [r for r in found if r.get("Type") == _3MF_MODEL_RELATIONSHIP]
+        if len(models) != 1 or len(found) != len(relationships) or len(found) != 1:
+            raise _refuse_3mf(path, "_rels/.rels must hold exactly one relationship, to the 3D model")
+        part = (models[0].get("Target") or "").lstrip("/")
+        extra = sorted(set(names) - {"[Content_Types].xml", "_rels/.rels", part})
+        if part not in names:
+            raise _refuse_3mf(path, f"the model part {part!r} that _rels/.rels names is missing")
+        if extra:
+            raise _refuse_3mf(path, f"it holds parts other than the model: {', '.join(extra)}")
+        model = _parse_3mf_xml(package, part, path)
+    core = f"{{{_3MF_CORE}}}"
+    if model.tag != f"{core}model":
+        raise _refuse_3mf(path, f"the model's root element is {model.tag}, not a model in the 3MF core namespace")
+    _only_attributes(model, {"unit", "{http://www.w3.org/XML/1998/namespace}lang"}, path)
+    unit = model.get("unit", "millimeter")
+    if unit not in UNITS_3MF:
+        raise _refuse_3mf(path, f"unknown unit {unit!r}")
+    children = [child.tag for child in model]
+    if children != [f"{core}resources", f"{core}build"]:
+        raise _refuse_3mf(path, f"the model must hold resources and then build; it holds {_names(children)}")
+    resources, build = model
+    if [child.tag for child in resources] != [f"{core}object"]:
+        raise _refuse_3mf(path, f"the resources must be one object; they are {_names([c.tag for c in resources])}")
+    (body,) = resources
+    _only_attributes(body, {"id", "type"}, path)
+    if body.get("type", "model") != "model":
+        raise _refuse_3mf(path, f"the object is of type {body.get('type')!r}, not 'model'")
+    if [child.tag for child in body] != [f"{core}mesh"]:
+        raise _refuse_3mf(path, f"the object must hold one mesh; it holds {_names([c.tag for c in body])}")
+    if len(build) != 1 or build[0].tag != f"{core}item" or build[0].get("objectid") != body.get("id"):
+        raise _refuse_3mf(path, "the build must be one item that places the object")
+    _only_attributes(build[0], {"objectid"}, path)
+    _only_attributes(build, set(), path)
+    (surface,) = body
+    _only_attributes(surface, set(), path)
+    if [child.tag for child in surface] != [f"{core}vertices", f"{core}triangles"]:
+        held = _names([c.tag for c in surface])
+        raise _refuse_3mf(path, f"the mesh must hold vertices and then triangles; it holds {held}")
+    vertices = _3mf_rows(surface[0], f"{core}vertex", ("x", "y", "z"), float, path)
+    triangles = _3mf_rows(surface[1], f"{core}triangle", ("v1", "v2", "v3"), int, path)
+    size = UNITS_3MF[unit]
+    vertices = np.array(vertices, dtype=np.float64).reshape(-1, 3)
+    return Mesh(vertices if size == 1.0 else vertices * size, np.array(triangles, dtype=np.int64).reshape(-1, 3))
+
+
+def _parse_3mf_xml(package: zipfile.ZipFile, name: str, path) -> ElementTree.Element:
+    try:
+        return ElementTree.fromstring(package.read(name))
+    except ElementTree.ParseError as error:
+        raise _refuse_3mf(path, f"{name} is not well-formed XML ({error})") from None
+
+
+def _names(tags) -> str:
+    return ", ".join(tag.rsplit("}", 1)[-1] for tag in tags) or "nothing"
+
+
+def _only_attributes(element: ElementTree.Element, allowed: set[str], path) -> None:
+    extra = sorted(set(element.keys()) - allowed)
+    if extra:
+        name = _names([element.tag])
+        raise _refuse_3mf(path, f"the element {name} has attributes michell does not read: {', '.join(extra)}")
+
+
+def _3mf_rows(element: ElementTree.Element, tag: str, keys: tuple[str, str, str], kind, path) -> list:
+    _only_attributes(element, set(), path)
+    values = []
+    for child in element:
+        if child.tag != tag or len(child):
+            found = _names([child.tag])
+            raise _refuse_3mf(path, f"{_names([element.tag])} may hold only {_names([tag])} elements; found {found}")
+        if set(child.keys()) != set(keys):
+            found = ", ".join(sorted(child.keys()))
+            raise _refuse_3mf(path, f"a {_names([tag])} has the attributes {found}, not {', '.join(keys)}")
+        try:
+            values += [kind(child.get(key)) for key in keys]
+        except ValueError:
+            raise _refuse_3mf(path, f"a {_names([tag])} holds {dict(child.items())}, not numbers") from None
+    return values
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -470,4 +736,18 @@ def torus(
     return Mesh(vertices.reshape(-1, 3) + centre, triangles)
 
 
-__all__ = ["ZERO_AREA", "Mesh", "box", "cylinder", "read_stl", "smallest_joined", "sphere", "torus", "write_stl"]
+__all__ = [
+    "UNITS_3MF",
+    "ZERO_AREA",
+    "Mesh",
+    "box",
+    "close_pairs",
+    "cylinder",
+    "read_3mf",
+    "read_stl",
+    "smallest_joined",
+    "sphere",
+    "torus",
+    "write_3mf",
+    "write_stl",
+]

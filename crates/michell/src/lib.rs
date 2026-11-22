@@ -5,8 +5,9 @@
 //! product solved by conjugate gradients with a multigrid preconditioner, on as many threads as asked
 //! for) and the pieces of the optimisation loop that run over every element (the density filter on both
 //! grids, the Helmholtz filter, the projection, the member-size limit, the OC update and the method of moving
-//! asymptotes), with the dot product the loop needs, and the voxeliser that turns closed triangle meshes
-//! into the occupancy of every voxel of a grid. The crate contains
+//! asymptotes), with the dot product the loop needs, the voxeliser that turns closed triangle meshes
+//! into the occupancy of every voxel of a grid, and the iso-surface that turns a field sampled on a lattice
+//! into a closed triangle surface. The crate contains
 //! no unsafe code.
 //! Each file has one job:
 //!
@@ -44,6 +45,10 @@
 //!   how the intervals of several bodies combine;
 //! - `voxelise`: the occupancy of every voxel of a grid by a union of bodies minus another, ray by ray, on
 //!   threads;
+//! - `tetrahedra`: the split of a lattice cell into six tetrahedra and the piece of an iso-surface inside
+//!   one tetrahedron, for each of its 16 cases;
+//! - `iso_surface`: the closed surface where a field sampled on a lattice equals a level (marching
+//!   tetrahedra), on threads;
 //! - `error`: the error type every call returns.
 
 #![forbid(unsafe_code)]
@@ -61,6 +66,7 @@ pub mod grid3d;
 pub mod held_check;
 pub mod helmholtz_filter;
 pub mod hex8;
+pub mod iso_surface;
 pub mod material;
 pub mod member_size;
 pub mod mma;
@@ -76,6 +82,7 @@ pub mod projection;
 pub mod quad4;
 #[cfg(test)]
 mod smoother_study;
+pub mod tetrahedra;
 pub mod threads;
 pub mod voxel_rays;
 pub mod voxelise;
@@ -90,6 +97,7 @@ pub use error::{DetailValue, EngineError, ErrorCode};
 pub use grid2d::Grid2d;
 pub use grid3d::Grid3d;
 pub use helmholtz_filter::HelmholtzFilter;
+pub use iso_surface::{Lattice, Surface, iso_surface};
 pub use material::Material;
 pub use member_size::MemberSize;
 pub use mma::Mma;

@@ -31,8 +31,13 @@ The package holds:
   arrays) and a ``.json`` file (the rest: values, limits met, stop reason, the record of every pass) and read
   back as a plain dictionary;
 - ``michell.mesh``: ``Mesh``, a closed triangle mesh in mm with its volume and its check (``closed()``),
-  ``read_stl`` and ``write_stl``, and the bodies ``box``, ``sphere``, ``cylinder`` and ``torus`` with the
-  exact volumes of their facets;
+  its bodies, Euler characteristic, genus and roughness, ``read_stl`` and ``write_stl``, ``read_3mf`` and
+  ``write_3mf``, and the bodies ``box``, ``sphere``, ``cylinder`` and ``torus`` with the exact volumes of
+  their facets;
+- ``michell.surface``: from a field to a closed surface: ``ScalarField`` (samples on a regular lattice of
+  points), ``iso_surface`` (the closed ``Mesh`` where the field equals a level, by the engine's marching
+  tetrahedra), ``refine`` (the field on a finer lattice, by linear or monotone cubic interpolation) and
+  ``smooth`` (Taubin smoothing, with its ``Smoothing`` report);
 - ``michell.regions``: ``occupancy``, the share of every voxel of a grid inside a union of meshes minus
   another (the engine's voxeliser), and ``voxel_model``, the ``VoxelModel`` of a part from its design, solid
   and void regions (the grid, the active and the held-solid voxels, a volume table, the bodies, an optional
@@ -81,14 +86,15 @@ from michell.modules import Filter, Partials, Response
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, LimitNotMet, Pass, Result, optimise
 from michell.problem import LoadCase, Material, Problem
-from michell import attach, export, mesh, problem_file, recipes, regions, select
+from michell import attach, export, mesh, problem_file, recipes, regions, select, surface
 from michell.attach import Case, Load, LoadOnSupport, SetUp, Support, set_up
 from michell.export import read_result, write_result, write_vtk
-from michell.mesh import Mesh, read_stl, write_stl
+from michell.mesh import Mesh, read_3mf, read_stl, write_3mf, write_stl
 from michell.problem_file import Prepared, ProblemFile, RunOutcome, prepare, run
 from michell.recipes import GridTooCoarse, RecipePass, StiffPart, member_size_bound, stiff_part
 from michell.regions import VolumeRow, VoxelModel, VoxelVolumeDiffers, voxel_model
 from michell.responses import Compliance, Mass
+from michell.surface import ScalarField, Smoothing, iso_surface, refine, smooth
 from michell.row import Row
 
 __version__ = _version("michell")
@@ -133,7 +139,9 @@ __all__ = [
     "Result",
     "Row",
     "RunOutcome",
+    "ScalarField",
     "SetUp",
+    "Smoothing",
     "StiffPart",
     "Support",
     "VolumeRow",
@@ -148,6 +156,7 @@ __all__ = [
     "element_stiffness_3d",
     "engine_version",
     "export",
+    "iso_surface",
     "member_size_bound",
     "member_threshold",
     "mesh",
@@ -155,16 +164,21 @@ __all__ = [
     "optimise",
     "prepare",
     "problem_file",
+    "read_3mf",
     "read_result",
     "read_stl",
     "recipes",
+    "refine",
     "regions",
     "robust_designs",
     "run",
     "select",
     "set_up",
+    "smooth",
     "stiff_part",
+    "surface",
     "voxel_model",
+    "write_3mf",
     "write_result",
     "write_stl",
     "write_vtk",

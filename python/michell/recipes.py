@@ -34,8 +34,8 @@ from michell.responses import Compliance, Mass
 
 # eps of the member-size limit read from figure 8 of Zhou et al. (2015) for the filter radius r in elements
 # (with c = r^4): the figure's markers on its logarithmic axis, read by interpolating between the decades
-# in the drawing's own coordinates.
-EPS_OF_FIGURE_8 = {3: 1e-6, 4: 3e-7, 5: 1e-7, 6: 7.5e-8, 7: 6e-8, 8: 5.5e-8}
+# in the drawing's own coordinates. Above r = 10, the last marker, `member_size_bound` keeps the value at 10.
+EPS_OF_FIGURE_8 = {3: 1e-6, 4: 3e-7, 5: 1e-7, 6: 7.5e-8, 7: 6e-8, 8: 5.5e-8, 9: 5e-8, 10: 5e-8}
 
 # The default settings of `stiff_part`: (beta, passes) of the first step, 100 passes in all.
 SCHEDULE = ((1.0, 21), (2.0, 14), (4.0, 14), (8.0, 14), (16.0, 18), (32.0, 19))
@@ -54,8 +54,8 @@ MEMBER_SIZE_STEP = "member size"
 def member_size_bound(radius_in_elements: float) -> float:
     """The bound eps of the member-size limit for a filter radius of ``radius_in_elements`` element sides,
     read off figure 8 of Zhou, Lazarov, Wang and Sigmund (2015) (``EPS_OF_FIGURE_8``, with c = r^4): at
-    r = 3, 4, 5, 6, 7, 8 the values 1e-6, 3e-7, 1e-7, 7.5e-8, 6e-8 and 5.5e-8, exactly; between them
-    linear in log10(eps); below 3 and above 8 the value at 3 or at 8."""
+    r = 3, 4, 5, 6, 7, 8, 9, 10 the values 1e-6, 3e-7, 1e-7, 7.5e-8, 6e-8, 5.5e-8, 5e-8 and 5e-8, exactly;
+    between them linear in log10(eps); below 3 and above 10 the value at 3 or at 10."""
     r = _positive_number(radius_in_elements, "the radius in elements")
     nodes = sorted(EPS_OF_FIGURE_8)
     if r <= nodes[0]:

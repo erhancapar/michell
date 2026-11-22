@@ -50,7 +50,7 @@ def test_grid_numbering_runs_x_then_y_then_z():
 def test_solve_reports_its_steps_and_a_start_at_the_solution_takes_none():
     # 16 x 8 x 8 elements: two multigrid levels.
     grid, model = clamped_block(16, 8, 8, tolerance=1e-10)
-    assert (model.tolerance, model.max_steps, model.multigrid_levels) == (1e-10, 500, 2)
+    assert (model.tolerance, model.max_steps, model.multigrid_levels) == (1e-10, 5000, 2)
     assert model.last_solve_report() is None
     rho = np.ones(grid.n_elements)
     loads = tip_load(grid)
@@ -64,6 +64,15 @@ def test_solve_reports_its_steps_and_a_start_at_the_solution_takes_none():
     # The adjoint of the compliance is the displacement itself.
     lam = model.adjoint(rho, loads, start=None)
     assert np.allclose(lam, u, rtol=0, atol=1e-9 * np.abs(u).max())
+
+
+def test_the_step_cap_defaults_to_that_of_problem_in_the_binding_too():
+    grid, model = clamped_block()
+    held = np.zeros(grid.n_dofs)
+    for j, k in ((0, 0), (2, 0), (0, 2)):  # three corners of the face x = 0, every degree of freedom
+        held[3 * grid.node(0, j, k) : 3 * grid.node(0, j, k) + 3] = 1.0
+    bare = _engine.Elasticity3d(grid, held, youngs_modulus=1.0, poisson_ratio=0.3, e_min=1e-9, penalty=3.0)
+    assert model.max_steps == bare.max_steps == 5000
 
 
 def test_a_grid_that_is_its_own_coarsest_level_is_solved_in_one_step():

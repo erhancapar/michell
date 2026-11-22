@@ -174,7 +174,7 @@ class Elasticity3d:
         e_min: float,
         penalty: float,
         tolerance: float = 1e-6,
-        max_steps: int = 500,
+        max_steps: int = 5000,
         threads: int = 1,
     ) -> None: ...
     def solve(
@@ -276,11 +276,12 @@ class Projection:
         """dg/dx from dg/dP: each entry of grad times P' at the same entry of x."""
 
 def member_size(
-    grid: Grid | Grid3d, filtered: Vector, projection: Projection, threshold: float, c: float
+    grid: Grid | Grid3d, filtered: Vector, projection: Projection, thresholds: Vector, c: float
 ) -> tuple[float, Vector]:
     """The member-size constraint on the solid phase (Zhou, Lazarov, Wang and Sigmund 2015, eqs. 8 and 10),
-    g = (1/n) sum_e P(f_e) exp(-c |grad f|_e^2) [min(f_e - threshold, 0)]^2 over the active elements, with
-    the gradient per element side; returns g and dg/df."""
+    g = (1/n) sum_e P(f_e) exp(-c |grad f|_e^2) [min(f_e - t_e, 0)]^2 over the active elements, with the
+    gradient per element side, n the number of active elements and t_e the entry of ``thresholds`` (one per
+    element, each between 0 and 1) for element e; returns g and dg/df."""
 
 class Oc:
     """The optimality-criteria update of the 88-line code: one goal, one limit linear in the density."""

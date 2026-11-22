@@ -156,8 +156,11 @@ def test_a_problem_is_required():
 def test_the_bound_of_figure_8():
     for r, eps in EPS_OF_FIGURE_8.items():
         assert member_size_bound(r) == eps
+    assert member_size_bound(9.0) == member_size_bound(10.0) == 5e-8
+    assert member_size_bound(9.5) == pytest.approx(5e-8, rel=1e-12)
+    assert member_size_bound(8.5) == pytest.approx(np.sqrt(5.5e-8 * 5e-8), rel=1e-12)
     assert member_size_bound(2.0) == member_size_bound(1.0) == 1e-6
-    assert member_size_bound(12.0) == 5.5e-8
+    assert member_size_bound(12.0) == member_size_bound(40.0) == 5e-8
     middle = member_size_bound(4.5)
     assert middle == pytest.approx(np.sqrt(3e-7 * 1e-7), rel=1e-12)
     with pytest.raises(michell.EngineError):
@@ -169,6 +172,8 @@ def test_row_28_the_recipe_on_a_3d_bridge():
     pytest.importorskip("scipy")
     rows = verification.row_28_recipe_bridge()
     assert len(rows) == 5
+    # The mass is checked as its relative excess over the asked mass, so the table shows the limit itself.
+    assert rows[0].name.endswith("nominal mass over the asked mass, minus 1") and rows[0].limit == 0.001
     for row in rows:
         print(f"ROW {row.number} ({row.name}): measured {row.measured!r}, limit {row.limit!r}; {row.note}")
         assert row.passed is True, f"{row.name}: {row.note}"

@@ -23,7 +23,8 @@ from michell.row import DESIGN_PROPERTY, Row, checked, g3, not_run
 
 # ---------------------------------------------------------------------------------------------------------
 # Row 28. Limits, each on its own line, fixed before any run:
-# (a) the mass of the returned nominal design over the asked mass is at most 1.001;
+# (a) the relative excess of the mass of the returned nominal design over the asked mass (the first over the
+#     second, minus 1) is at most 0.001;
 # (b) the thresholded design (nominal density at least 0.5) is one body, joined through element faces:
 #     the number of bodies is at most 1 (an empty design counts as infinitely many);
 # (c) the grey share, the mean of 4 rho (1 - rho) over the design elements (active and not held), is at
@@ -148,13 +149,13 @@ def row_28_recipe_bridge() -> list[Row]:
     nx, ny, nz = ROW_28_DIMS
     head = f"Two-step recipe on a 3D bridge {nx} x {ny} x {nz}"
     names = (
-        f"{head}: nominal mass over the asked mass",
+        f"{head}: nominal mass over the asked mass, minus 1",
         f"{head}: bodies of the design thresholded at 0.5, joined through faces",
         f"{head}: grey share, mean of 4 rho (1 - rho) over the design elements",
         f"{head}: share of the solid removed by an opening of 0.9 times the member size",
         f"{head}: compliance over that at the end of the robust step",
     )
-    limits = (1.001, 1.0, 0.05, 0.05, 1.10)
+    limits = (0.001, 1.0, 0.05, 0.05, 1.10)
     try:
         import scipy.ndimage  # noqa: F401
     except ImportError:
@@ -186,7 +187,7 @@ def row_28_recipe_bridge() -> list[Row]:
         f"{result.limits_met}, stop reason {result.stop_reason}; limits fixed before any run"
     )
     return [
-        checked(28, names[0], DESIGN_PROPERTY, mass / part.mass_g, limits[0], f"mass {g3(mass)} g; {set_up}"),
+        checked(28, names[0], DESIGN_PROPERTY, mass / part.mass_g - 1.0, limits[0], f"mass {g3(mass)} g; {set_up}"),
         checked(
             28,
             names[1],

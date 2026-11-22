@@ -31,7 +31,8 @@ class Material:
 
 @dataclass(frozen=True)
 class LoadCase:
-    """One load case: a force per degree of freedom (N) and the weight of the case in a weighted sum."""
+    """One load case: a force per degree of freedom (N) and the weight of the case in a weighted sum, a
+    finite number at least 0."""
 
     name: str
     loads: np.ndarray
@@ -41,6 +42,14 @@ class LoadCase:
         loads = np.array(self.loads, dtype=np.float64)  # a copy, so the case cannot change afterwards
         loads.flags.writeable = False
         object.__setattr__(self, "loads", loads)
+        try:
+            weight_ok = bool(np.isfinite(self.weight) and self.weight >= 0)
+        except (TypeError, ValueError):
+            weight_ok = False
+        if not weight_ok:
+            raise InvalidValue(
+                f"the weight of load case {self.name!r} must be a finite number at least 0; got {self.weight!r}"
+            )
 
 
 class Problem:

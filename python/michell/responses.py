@@ -32,9 +32,16 @@ class Compliance:
         return float(total)
 
     def impossible_bound(self, problem, at_most: float, filters) -> str | None:
-        """A compliance is f . u >= 0 for every design, so a bound at or below 0 can never be met."""
-        if at_most <= 0:
-            return f"a compliance is f . u, never below 0, so its bound must be above 0 N mm (got {at_most:.6g})"
+        """A compliance, the weighted sum of f . u over the load cases, is at least 0 for every design (when
+        the weights are at least 0), so a bound below 0 can never be met; a bound of exactly 0 is met only
+        by a part without load, so it is refused too and a bound above 0 is asked for."""
+        if at_most < 0:
+            return (
+                f"a compliance is f . u, never below 0, so a bound below 0 N mm can never be met "
+                f"(got {at_most:.6g})"
+            )
+        if at_most == 0:
+            return "a compliance of 0 is met only by a part without load, so the bound must be above 0 N mm (got 0)"
         return None
 
     def partials(self, ev) -> Partials:
@@ -80,10 +87,13 @@ class Mass:
         return Partials(d_density=self._per_element(ev), d_state={})
 
     def impossible_bound(self, problem, at_most: float, filters) -> str | None:
-        """A bound at or below 0 g, or one below the mass of the elements that a ``KeepSolid`` at the end of
-        ``filters`` holds solid, can never be met."""
-        if at_most <= 0:
-            return f"a mass is 0 only for an empty part, so its bound must be above 0 g (got {at_most:.6g})"
+        """A bound below 0 g, or one below the mass of the elements that a ``KeepSolid`` at the end of
+        ``filters`` holds solid, can never be met; a bound of exactly 0 g is met only by the empty part, so it
+        is refused too and a bound above 0 is asked for."""
+        if at_most < 0:
+            return f"a mass is never below 0, so a bound below 0 g can never be met (got {at_most:.6g})"
+        if at_most == 0:
+            return "a mass of 0 is met only by the empty part, so the bound must be above 0 g (got 0)"
         if filters and isinstance(filters[-1], KeepSolid) and filters[-1].mask.size == problem.grid.n_elements:
             kept = problem.material.mass_g(problem.grid.voxel_volume_mm3) * problem.grid.active
             kept_mass = float(np.sum(kept[filters[-1].mask]))
@@ -91,7 +101,7 @@ class Mass:
                 count = int(np.count_nonzero(filters[-1].mask))
                 return (
                     f"KeepSolid holds {count} elements solid, {kept_mass:.6g} g, more than the bound "
-                    f"{at_most:.6g} g"
+                    f"{at_most:.6g} g, so the bound can never be met"
                 )
         return None
 

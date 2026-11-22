@@ -127,13 +127,16 @@ body and one of its elements in the details; the 3D solve itself can also raise 
 coarsest multigrid level meets a pivot that is not positive for the density of that call); `solver_not_converged` with the residual and step count (the
 MMA subproblem; the iterative solver in 3D). An `EngineError` that leaves `michell.optimise` carries the passes
 completed before it as `partial_result`, a `Result` like the one a run that stopped there would return, with
-`stop_reason` `"error"` (`None` when the arguments were refused before the first pass).
+`stop_reason` `"error"`. It is `None` when the arguments were refused before the first pass, a refusal by the
+optimiser's `start` included (`start` is called among those checks, so nothing has been solved), and when the
+filters cannot be applied to the `x` of the partial result.
 The checks written in Python raise `EngineError` too, with the code `invalid_input` and the same three fields;
 each is also the built-in exception it replaces (`ValueError`, `TypeError` or `KeyError`, from
 `michell.errors`). Among them: a load case that loads a held degree of freedom (refused when the `Problem` is
 built, since the load would be lost), a limit whose bound is not a finite number, and a bound that no design
-can meet (a mass or compliance bound at or below 0, or a mass bound below the mass that a final `KeepSolid`
-holds solid), refused by `optimise` before the first pass.
+can meet (a mass or compliance bound below 0, or a mass bound below the mass that a final `KeepSolid` holds
+solid) or that only a degenerate case meets (a mass bound of 0, met only by the empty part, and a compliance
+bound of 0, met only by a part without load), refused by `optimise` before the first pass.
 The 3D check is stricter than the mathematics in one rare case: elements that meet only along an edge or at a
 corner count as separate bodies, so a body restrained only through such a hinge to another, held body is
 refused, although the hinge stops some of its motions.

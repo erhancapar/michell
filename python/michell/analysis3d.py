@@ -29,11 +29,11 @@ class Elasticity3d(_engine.Elasticity3d):
     ``held`` (one entry per degree of freedom, three per node) may be a boolean array or float64
     0.0 / 1.0. The stiffness matrix is never assembled: ``solve`` and ``adjoint`` use conjugate gradients
     preconditioned by one multigrid V-cycle (built for the density of each call), stopped at the relative
-    residual ``tolerance`` (default 1e-6); more than ``max_steps`` steps (default 500) raise
-    ``EngineError`` with code ``solver_not_converged``. Both take a first guess ``start=``; nothing is kept
-    from one call to the next except ``last_solve_report()`` (steps, final relative residual and the
-    number of products with the stiffness matrix). ``element_stress`` returns six components per element:
-    xx, yy, zz, yz, zx, xy.
+    residual ``tolerance`` (default 1e-6); more than ``max_steps`` steps (default 5000, the default of
+    ``Problem(solver_max_steps=)`` too) raise ``EngineError`` with code ``solver_not_converged``. Both
+    take a first guess ``start=``; nothing is kept from one call to the next except ``last_solve_report()``
+    (steps, final relative residual and the number of products with the stiffness matrix).
+    ``element_stress`` returns six components per element: xx, yy, zz, yz, zx, xy.
 
     Every call runs on ``threads`` threads (default 1, at least 1; more threads than processor cores is
     allowed). The work is shared out so that the numbers do not depend on how many threads there are.
@@ -47,7 +47,7 @@ class Elasticity3d(_engine.Elasticity3d):
     """
 
     def __new__(
-        cls, grid, held, *, youngs_modulus, poisson_ratio, e_min, penalty, tolerance=1e-6, max_steps=500, threads=1
+        cls, grid, held, *, youngs_modulus, poisson_ratio, e_min, penalty, tolerance=1e-6, max_steps=5000, threads=1
     ):
         return super().__new__(
             cls,

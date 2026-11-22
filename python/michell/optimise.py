@@ -48,10 +48,13 @@ class Limit:
     bound far below the values the response takes before the limit is met (the member-size limit, whose
     bound is of the order of 1e-7) needs a larger scale; see ``michell.member_size``.
 
-    ``at_most`` must be a finite number. A response may also refuse a bound that no design can meet: if it
-    has a method ``impossible_bound(problem, at_most, filters)`` (``filters``: every filter between x and
-    the design it reads), returning the reason as a string or ``None``, ``optimise`` calls it before the
-    first pass and refuses the limit with that reason. ``Mass`` and ``Compliance`` have one."""
+    ``at_most`` must be a finite number. A response may also refuse a bound that no design can meet, or one
+    that only a degenerate case meets: if it has a method ``impossible_bound(problem, at_most, filters)``
+    (``filters``: every filter between x and the design it reads), returning the reason as a string or
+    ``None``, ``optimise`` calls it before the first pass and refuses the limit with that reason. ``Mass``
+    and ``Compliance`` have one: each refuses a bound below 0, which no design meets, and a bound of exactly
+    0, which only the empty part (a mass) or a part without load (a compliance) meets; ``Mass`` also refuses
+    a bound below the mass that a final ``KeepSolid`` holds solid."""
 
     response: Response
     at_most: float
@@ -60,12 +63,17 @@ class Limit:
     def __post_init__(self):
         try:
             finite = bool(np.isfinite(self.at_most))
-        except TypeError:
+        except (TypeError, ValueError):  # not a number, or an array of several numbers
             finite = False
         if not finite:
             raise InvalidValue(f"the bound of a limit must be a finite number; got at_most={self.at_most!r}")
-        if self.scale is not None and not (np.isfinite(self.scale) and self.scale > 0):
-            raise InvalidValue(f"the scale of a limit must be a positive number; got {self.scale!r}")
+        if self.scale is not None:
+            try:
+                positive = bool(np.isfinite(self.scale) and self.scale > 0)
+            except (TypeError, ValueError):
+                positive = False
+            if not positive:
+                raise InvalidValue(f"the scale of a limit must be a positive number; got {self.scale!r}")
 
 
 class Optimiser(Protocol):
@@ -162,7 +170,7 @@ def _design_text(limit: Limit) -> str:
 
 
 def _refuse_impossible_bounds(problem, limits, limit_parts, filters, chains) -> None:
-    # Each response that can tell a bound no design meets is asked before the first pass.
+    # Each response that can tell a bound it refuses is asked before the first pass; its reason says why.
     for index, (limit, (design, response)) in enumerate(zip(limits, limit_parts)):
         check = getattr(response, "impossible_bound", None)
         if check is None:
@@ -171,7 +179,7 @@ def _refuse_impossible_bounds(problem, limits, limit_parts, filters, chains) -> 
         if reason is not None:
             raise InvalidValue(
                 f"limit {index} ({limit.response.name}{_design_text(limit)}, at most {limit.at_most:.6g}"
-                f"{_unit_text(limit)}) can never be met: {reason}",
+                f"{_unit_text(limit)}) is refused: {reason}",
                 {"limit": index, "at_most": float(limit.at_most)},
             )
 
@@ -205,21 +213,24 @@ def optimise(
     = ``|at_most|`` (1 when ``at_most`` is 0), not the limit's ``scale``. When a limit is not met the result
     is returned all the same, and a ``michell.LimitNotMet`` warning names each limit missed.
 
-    A limit whose response refuses its bound (``impossible_bound``, see ``Limit``) and any other argument
-    refused before the first pass raise ``EngineError`` with code ``invalid_input`` and ``partial_result``
-    ``None``. An ``EngineError`` raised on the way (by a solve, a filter or the optimiser) leaves
-    ``optimise`` with the attribute ``partial_result``: the ``Result`` of the passes completed before the
-    error, that is ``x`` after the last completed update, its ``density`` and ``designs``, the records of
-    those passes (the starting ``x`` and no records if no pass was completed) and ``stop_reason``
-    ``"error"``, with the goal and limit values of that ``x`` when they could be measured (``None``
-    otherwise; an ``x`` whose evaluation raised is not evaluated again). Past the refused arguments it is
-    ``None`` only when the filters cannot be applied to that ``x`` either. The same holds when the
-    evaluation after the last update raises.
+    The arguments are checked before the first pass, and nothing is solved until they pass: a limit whose
+    response refuses its bound (``impossible_bound``, see ``Limit``), any other refused argument, and a
+    refusal by the optimiser's ``start`` (which is called there, with x already zero outside the part; for
+    example ``OptimalityCriteria`` given two limits or a 3D grid) raise ``EngineError`` with
+    ``partial_result`` ``None`` (and code ``invalid_input``, for every refusal of michell's own). An
+    ``EngineError`` raised later (by a solve, a filter, a response or the optimiser's update) leaves
+    ``optimise`` with the attribute ``partial_result``: the ``Result`` of the passes completed before the error, that is ``x`` after the
+    last completed update, its ``density`` and ``designs``, the records of those passes (the starting ``x``
+    and no records if no pass was completed) and ``stop_reason`` ``"error"``, with the goal and limit
+    values of that ``x`` when they were measured before the error (in a gradient or the update), ``None``
+    when the evaluation of that ``x`` itself raised (it is not evaluated again). ``partial_result`` is also
+    ``None`` when the filters cannot be applied to that ``x``. The same holds when the evaluation after the
+    last update raises.
     """
     try:
         try:
             tolerance_ok = bool(np.isfinite(limit_tolerance) and limit_tolerance >= 0)
-        except TypeError:
+        except (TypeError, ValueError):  # not a number, or an array of several numbers
             tolerance_ok = False
         if not tolerance_ok:
             raise InvalidValue(f"limit_tolerance must be a finite number at least 0; got {limit_tolerance!r}")
@@ -227,15 +238,15 @@ def optimise(
         goal_design, goal_response = design_of(goal, chains)
         limit_parts = [design_of(limit.response, chains) for limit in limits]
         _refuse_impossible_bounds(problem, limits, limit_parts, filters, chains)
+        x = np.where(problem.grid.active == 1.0, np.asarray(x, dtype=np.float64), 0.0)
+        optimiser.start(problem, x, limits, filters)
     except EngineError as error:
         error.partial_result = None
         raise
-    x = np.where(problem.grid.active == 1.0, np.asarray(x, dtype=np.float64), 0.0)
     reads = reads_by_design([(goal_design, goal_response), *limit_parts], chains)
     history = []
     states = None  # per design, the warm start of the next solves
     measured = None  # the goal and limit values of the current x, once measured
-    tried = False  # whether an evaluation of the current x was begun
     stop_reason = "passes"
 
     def values_of(evaluated) -> tuple[float, list[float]]:
@@ -268,9 +279,7 @@ def optimise(
         )
 
     try:
-        optimiser.start(problem, x, limits, filters)
         for number in range(1, passes + 1):
-            tried = True
             base_fields, evaluated = evaluate_designs(problem, x, filters, chains, reads, start=states)
             steps = {design: [ev.solver_steps] for design, (ev, _) in evaluated.items()}
 
@@ -290,23 +299,16 @@ def optimise(
             by_design = {} if designs is None else solved
             total_steps = sum(sum(counts) for counts in steps.values())
             history.append(Pass(number, goal_value, tuple(limit_values), change, total_steps, by_design))
-            x, measured, tried = x_new, None, False
+            x, measured = x_new, None
             states = {design: ev.states for design, (ev, _) in evaluated.items()}
             if stop_change is not None and change <= stop_change:
                 stop_reason = "change"
                 break
         # The returned design, evaluated once more: values only, no gradients.
-        tried = True
         _, evaluated = evaluate_designs(problem, x, filters, chains, reads, start=states)
         measured = values_of(evaluated)
     except EngineError as error:
-        if measured is None and not tried:
-            # The error came before this x was evaluated (in the optimiser's start): try it once. An x whose
-            # evaluation was begun is not evaluated again, since the same call would raise the same error.
-            try:
-                measured = values_of(evaluate_designs(problem, x, filters, chains, reads, start=states)[1])
-            except EngineError:
-                measured = None
+        # An x whose evaluation raised is not evaluated again: the same call would raise the same error.
         try:
             error.partial_result = result("error")
         except EngineError:

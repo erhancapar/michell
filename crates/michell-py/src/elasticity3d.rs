@@ -68,7 +68,7 @@ impl Elasticity3d {
     /// runs on.
     #[new]
     #[pyo3(signature = (
-        grid, held, *, youngs_modulus, poisson_ratio, e_min, penalty, tolerance = 1e-6, max_steps = 500,
+        grid, held, *, youngs_modulus, poisson_ratio, e_min, penalty, tolerance = 1e-6, max_steps = 5000,
         threads = 1
     ))]
     #[allow(clippy::too_many_arguments)] // the signature Python sees; each argument is one setting

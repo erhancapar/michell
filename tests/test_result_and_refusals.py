@@ -202,16 +202,15 @@ def test_a_bound_that_is_not_a_finite_number_is_refused(bound):
     assert caught.value.code == "invalid_input"
 
 
-@pytest.mark.parametrize(
-    ("response", "bound", "words"),
-    [
-        (michell.Mass(), 0.0, "above 0 g (got 0)"),
-        (michell.Mass(), -2.5, "above 0 g (got -2.5)"),
-        (michell.Compliance(), 0.0, "above 0 N mm (got 0)"),
-        (michell.on("nominal", michell.Compliance()), -1.0, "above 0 N mm (got -1)"),
-    ],
-)
-def test_a_bound_that_no_design_can_meet_is_refused_before_the_first_pass(response, bound, words):
+def test_a_bound_or_a_scale_of_several_numbers_is_refused():
+    for settings, words in (({"at_most": np.array([1.0, 2.0])}, "finite number"),
+                            ({"at_most": 1.0, "scale": np.array([1.0, 2.0])}, "positive number")):  # fmt: skip
+        with pytest.raises(michell.EngineError, match=words) as caught:
+            michell.Limit(michell.Mass(), **settings)
+        assert caught.value.code == "invalid_input" and isinstance(caught.value, ValueError)
+
+
+def run_refused(response, bound):
     problem, x, filters = small_problem()
     designs = {"nominal": [michell.Projection(4.0)]} if isinstance(response, michell.On) else None
     goal = michell.on("nominal", michell.Mass()) if designs else michell.Mass()
@@ -220,8 +219,56 @@ def test_a_bound_that_no_design_can_meet_is_refused_before_the_first_pass(respon
         michell.optimise(problem, goal, [michell.Limit(response, bound)], filters, optimiser, x, 5, designs=designs)
     error = caught.value
     assert error.code == "invalid_input" and error.partial_result is None
-    assert "limit 0" in error.message and "can never be met" in error.message and words in error.message
+    assert "limit 0" in error.message and "is refused" in error.message
     assert error.details == {"limit": 0, "at_most": bound}
+    return error
+
+
+@pytest.mark.parametrize(
+    ("response", "bound", "words"),
+    [
+        (michell.Mass(), -2.5, "below 0 g can never be met (got -2.5)"),
+        (michell.on("nominal", michell.Compliance()), -1.0, "below 0 N mm can never be met (got -1)"),
+    ],
+)
+def test_a_bound_below_0_that_no_design_can_meet_is_refused_before_the_first_pass(response, bound, words):
+    assert words in run_refused(response, bound).message
+
+
+@pytest.mark.parametrize(
+    ("response", "words"),
+    [
+        (michell.Mass(), "met only by the empty part, so the bound must be above 0 g (got 0)"),
+        (michell.Compliance(), "met only by a part without load, so the bound must be above 0 N mm (got 0)"),
+    ],
+)
+def test_a_bound_of_0_is_refused_before_the_first_pass_without_saying_it_can_never_be_met(response, words):
+    message = run_refused(response, 0.0).message
+    assert words in message and "never be met" not in message
+
+
+def test_a_refusal_by_the_optimisers_start_comes_before_any_solve(monkeypatch):
+    solves = []
+    solve = michell.Problem.solve
+
+    def counted(self, *arguments, **settings):
+        solves.append(1)
+        return solve(self, *arguments, **settings)
+
+    monkeypatch.setattr(michell.Problem, "solve", counted)
+    problem, x, filters = small_problem()
+    limit = michell.Limit(michell.Mass(), at_most=0.4 * solid_mass(problem))
+    with pytest.raises(michell.EngineError, match="exactly one limit") as caught:
+        michell.optimise(problem, michell.Compliance(), [limit, limit], filters, michell.OptimalityCriteria(), x, 5)
+    assert caught.value.code == "invalid_input" and caught.value.partial_result is None
+    assert solves == []
+    problem_3d, x_3d, filters_3d = small_problem_3d()
+    with pytest.raises(michell.EngineError, match="2D grid only") as caught:
+        michell.optimise(problem_3d, michell.Compliance(), [], filters_3d, michell.OptimalityCriteria(), x_3d, 5)
+    assert caught.value.partial_result is None and solves == []
+    # The counter sees the solves of a run that is not refused.
+    michell.optimise(problem, michell.Compliance(), [], filters, michell.MovingAsymptotes(), x, 1)
+    assert len(solves) > 0
 
 
 def test_a_mass_bound_below_what_keep_solid_holds_is_refused():
@@ -244,7 +291,7 @@ def test_a_mass_bound_below_what_keep_solid_holds_is_refused():
                 michell.optimise(*run, designs=designs)
 
 
-@pytest.mark.parametrize("tolerance", [-1e-3, float("nan")])
+@pytest.mark.parametrize("tolerance", [-1e-3, float("nan"), np.array([1e-3, 1e-2])])
 def test_a_limit_tolerance_below_0_or_not_a_number_is_refused(tolerance):
     problem, x, filters = small_problem()
     with pytest.raises(michell.EngineError, match="limit_tolerance") as caught:
@@ -256,3 +303,11 @@ def test_density_is_given_in_grams_per_cubic_centimetre():
     steel = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_cm3=7.85)
     assert steel.mass_g(1000.0) == pytest.approx(7.85, rel=1e-15)  # 1 cm^3 of steel
     assert not hasattr(steel, "density_g_mm3")
+
+
+@pytest.mark.parametrize("weight", [-1.0, float("nan"), float("inf"), "heavy"])
+def test_a_load_case_weight_below_0_or_not_finite_is_refused(weight):
+    with pytest.raises(michell.EngineError) as refused:
+        michell.LoadCase("case", np.zeros(4), weight)
+    assert refused.value.code == "invalid_input"
+    assert michell.LoadCase("case", np.zeros(4), 0.0).weight == 0.0

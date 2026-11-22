@@ -22,7 +22,11 @@ The package holds:
   (the engine's ``Mma`` update), and the finite-difference gradient check ``check_gradient``;
 - ``michell.recipes``: whole procedures from one call; ``stiff_part``, the stiffest part of a given mass
   with a minimum member size (the robust formulation, then the member-size limit), and
-  ``member_size_bound``, the bound of that limit for a filter radius in elements;
+  ``member_size_bound``, the bound of that limit for a filter radius in elements, and ``GridTooCoarse``, the
+  warning ``stiff_part`` gives when the member size is fewer than five elements;
+- ``michell.select``: nodes, elements and degrees of freedom picked by position in mm and by face, the
+  ``held`` mask of a problem and the load vector of a force spread over nodes, without index arithmetic;
+- ``michell.export``: ``write_vtk``, per-element fields written as a legacy VTK file for ParaView;
 - ``dot``, the dot product of two vectors in the engine, for responses (with the OpenBLAS build that NumPy
   ships, ``a @ b`` runs long products on every core);
 - ``EngineError``, the error every engine call raises; the checks written in Python raise it too, with
@@ -57,8 +61,9 @@ from michell.modules import Filter, Partials, Response
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, LimitNotMet, Pass, Result, optimise
 from michell.problem import LoadCase, Material, Problem
-from michell import recipes
-from michell.recipes import RecipePass, StiffPart, member_size_bound, stiff_part
+from michell import export, recipes, select
+from michell.export import write_vtk
+from michell.recipes import GridTooCoarse, RecipePass, StiffPart, member_size_bound, stiff_part
 from michell.responses import Compliance, Mass
 from michell.row import Row
 
@@ -75,6 +80,7 @@ __all__ = [
     "GradientCheck",
     "Grid",
     "Grid3d",
+    "GridTooCoarse",
     "HelmholtzFilter",
     "KeepSolid",
     "Limit",
@@ -104,11 +110,14 @@ __all__ = [
     "element_stiffness",
     "element_stiffness_3d",
     "engine_version",
+    "export",
     "member_size_bound",
     "member_threshold",
     "on",
     "optimise",
     "recipes",
     "robust_designs",
+    "select",
     "stiff_part",
+    "write_vtk",
 ]

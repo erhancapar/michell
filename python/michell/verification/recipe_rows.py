@@ -8,10 +8,12 @@ Engrg. 293 (2015) 266-282, for the member-size step.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
 
+from michell import select
 from michell._engine import dot
 from michell.analysis3d import Grid3d
 from michell.filters import KeepSolid
@@ -68,28 +70,23 @@ class Bridge:
 def bridge(nx: int = 50, ny: int = 24, nz: int = 10, threads: int = 1) -> Bridge:
     """The bridge of row 28 (see the set-up above the row) on nx x ny x nz elements of side 1 mm."""
     grid = Grid3d(nx, ny, nz, 1.0)
-    held = np.zeros(grid.n_dofs, dtype=bool)
-    for i in (0, nx):
-        for k in range(nz + 1):
-            for j in range(ny + 1):
-                node = grid.node(i, j, k)
-                held[3 * node : 3 * node + 3] = True
+    held = select.held(grid, np.concatenate([select.face_nodes(grid, "x-"), select.face_nodes(grid, "x+")]))
     pad_x, pad_y, pad_z = ROW_28_PAD
     i0, j0 = (nx - pad_x) // 2, (ny - pad_y) // 2
-    loads = np.zeros(grid.n_dofs)
-    for i in range(i0, i0 + pad_x):  # each 1 mm square of the pad gives a quarter of its force to each corner
-        for j in range(j0, j0 + pad_y):
-            for a in (0, 1):
-                for b in (0, 1):
-                    loads[3 * grid.node(i + a, j + b, nz) + 2] -= ROW_28_LOAD_N / (pad_x * pad_y) / 4.0
-    kept = np.zeros((nz, ny, nx), dtype=bool)  # index [k, j, i]: x runs fastest
-    kept[:, :, :ROW_28_PLATE] = True
-    kept[:, :, nx - ROW_28_PLATE :] = True
-    kept[nz - pad_z :, j0 : j0 + pad_y, i0 : i0 + pad_x] = True
+    pad = ((i0, i0 + pad_x), (j0, j0 + pad_y), (nz - pad_z, nz))  # in mm: the elements have a side of 1 mm
+    # The consistent nodal forces of a uniform pressure: each 1 mm square of the pad gives a quarter of its
+    # force to each of its corners.
+    loads = select.load(grid, select.face_nodes(grid, "z+", within=pad), (0.0, 0.0, -ROW_28_LOAD_N))
+    everywhere = (-math.inf, math.inf)
+    kept = (
+        select.elements_in(grid, ((0, ROW_28_PLATE), everywhere, everywhere))
+        | select.elements_in(grid, ((nx - ROW_28_PLATE, nx), everywhere, everywhere))
+        | select.elements_in(grid, pad)
+    )
     steel = Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_cm3=7.85)
     problem = Problem(grid, held, steel, [LoadCase("pad", loads)], threads=threads)
     mass_g = ROW_28_FRACTION * steel.mass_g(grid.voxel_volume_mm3 * grid.n_elements)
-    return Bridge(problem, KeepSolid(kept.ravel(), grid), mass_g)
+    return Bridge(problem, KeepSolid(kept, grid), mass_g)
 
 
 def face_connected_bodies(solid: np.ndarray, dims: tuple[int, int, int]) -> int:

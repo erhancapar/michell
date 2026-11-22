@@ -198,7 +198,26 @@ two procedures above out as one function: the robust set with the continuation o
 dilated mass set again every few passes, then the member-size limit switched on at beta 32, with its bound
 from figure 8 (`member_size_bound`). It is built from the public pieces only, holds no state between calls,
 and returns the fields, the last `Result` and a record of every pass; its docstring states each setting and
-the procedure's limits, and verification row 28 runs it on a 3D bridge.
+the procedure's limits, and verification row 28 runs it on a 3D bridge. When the member size is fewer than
+five element sides (`size_mm / h < 5`) it warns with `GridTooCoarse`, a `UserWarning`, and runs all the
+same: on such a grid the limit's threshold, that of the continuous filter, makes members thicker than asked,
+and a finer grid removes the effect.
+
+## Setting up a problem and looking at the result
+
+`michell.select` picks the pieces of a problem by position instead of by index, on a 2D or a 3D grid, with
+positions in mm and the faces named as the density filter names them (`"x-"` to `"z+"`): `face_nodes(grid,
+face, within=None)`, `nodes_in(grid, box)`, `elements_in(grid, box)` (a boolean mask for `KeepSolid` and
+`active=`), `dofs(grid, nodes, directions=None)`, `held(grid, nodes, directions=None)` (the mask `Problem`
+takes) and `load(grid, nodes, force)`. A box is a closed (low, high) pair per direction, with a tolerance of
+1e-6 element sides. `load` gives the consistent nodal load of a uniform traction when the nodes cover a patch
+of element faces on a face of the grid (a quarter of each face's share to each of its corners), equal shares
+otherwise, and sums to the force exactly; `examples/bridge_3d_member_size.py` and row 28 build their part
+with it, with the same numbers as the index arithmetic they replaced.
+
+`michell.export.write_vtk(path, grid, **fields)` writes per-element fields (a density, a design, a mask) as
+one legacy VTK file, binary, a `STRUCTURED_POINTS` data set with the fields as `CELL_DATA`, which ParaView
+opens; it needs nothing beyond NumPy, and the bridge example writes one with `--vtk`.
 
 ## Two small examples
 

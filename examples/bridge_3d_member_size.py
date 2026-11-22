@@ -9,13 +9,17 @@ layout, then the member-size limit reshapes its members (the procedure is writte
 support, so they are closed; the free y and z faces are empty. Verification row 28 runs the same part.
 Run from the repository:
 
-    python examples/bridge_3d_member_size.py [--threads 1]
+    python examples/bridge_3d_member_size.py [--threads 1] [--vtk bridge.vtk]
 
-It prints a line per pass and, last, a JSON summary of the run.
+It prints a line per pass and, last, a JSON summary of the run. With ``--vtk`` it also writes the nominal
+design, the design at the end of the robust step and the held elements as one VTK file, which ParaView opens
+(``michell.export.write_vtk``). The supports, the load and the held elements are picked by position with
+``michell.select``.
 """
 
 import argparse
 import json
+import math
 import time
 
 import numpy as np
@@ -24,35 +28,32 @@ import michell
 
 parser = argparse.ArgumentParser(description="Optimise a 3D bridge with a minimum member size.")
 parser.add_argument("--threads", type=int, default=1, help="the number of threads of the solves and the filter")
+parser.add_argument("--vtk", metavar="FILE", help="also write the design as a VTK file (for ParaView) to FILE")
 args = parser.parse_args()
 
 nx, ny, nz = 50, 24, 10
 grid = michell.Grid3d(nx, ny, nz, 1.0)
 
-# Clamped on the faces x = 0 and x = nx: every degree of freedom of their nodes held.
-held = np.zeros(grid.n_dofs, dtype=bool)
-for i in (0, nx):
-    for k in range(nz + 1):
-        for j in range(ny + 1):
-            node = grid.node(i, j, k)
-            held[3 * node : 3 * node + 3] = True
+# Positions in mm (the elements have a side of 1 mm); a box is a (low, high) pair per direction.
+everywhere = (-math.inf, math.inf)
+pad = ((22.0, 28.0), (9.0, 15.0), (8.0, 10.0))  # 6 x 6 elements in the middle of the top face, 2 deep
 
-# 1000 N down (-z) on the pad of 6 x 6 elements in the middle of the top face, as a uniform pressure: each
-# 1 mm square of the pad gives a quarter of its force to each of its corners.
-i0, j0 = (nx - 6) // 2, (ny - 6) // 2
-loads = np.zeros(grid.n_dofs)
-for i in range(i0, i0 + 6):
-    for j in range(j0, j0 + 6):
-        for a in (0, 1):
-            for b in (0, 1):
-                loads[3 * grid.node(i + a, j + b, nz) + 2] -= 1000.0 / 36 / 4
+# Clamped on the faces x = 0 and x = nx: every degree of freedom of their nodes held.
+supports = np.concatenate([michell.select.face_nodes(grid, "x-"), michell.select.face_nodes(grid, "x+")])
+held = michell.select.held(grid, supports)
+
+# 1000 N down (-z) on the nodes of the pad's top, as a uniform pressure: each 1 mm square of the pad gives a
+# quarter of its force to each of its corners.
+pad_nodes = michell.select.face_nodes(grid, "z+", within=pad)
+loads = michell.select.load(grid, pad_nodes, (0.0, 0.0, -1000.0))
 
 # Held solid: the end plates and the pad under the load.
-kept = np.zeros((nz, ny, nx), dtype=bool)  # index [k, j, i]: x runs fastest
-kept[:, :, :2] = True
-kept[:, :, nx - 2 :] = True
-kept[nz - 2 :, j0 : j0 + 6, i0 : i0 + 6] = True
-keep_solid = michell.KeepSolid(kept.ravel(), grid)
+kept = (
+    michell.select.elements_in(grid, ((0.0, 2.0), everywhere, everywhere))
+    | michell.select.elements_in(grid, ((nx - 2.0, nx), everywhere, everywhere))
+    | michell.select.elements_in(grid, pad)
+)
+keep_solid = michell.KeepSolid(kept, grid)
 
 steel = michell.Material(youngs_modulus=210000.0, poisson_ratio=0.3, density_g_cm3=7.85)
 problem = michell.Problem(grid, held, steel, [michell.LoadCase("pad", loads)], threads=args.threads)
@@ -85,4 +86,8 @@ summary = {
     "stop_reason": result.stop_reason,
     "solid_elements": int((part.nominal >= 0.5).sum()),
 }
+if args.vtk:
+    michell.write_vtk(
+        args.vtk, grid, nominal=part.nominal, robust_step=part.first_step_nominal, held_solid=keep_solid.mask
+    )
 print(json.dumps(summary))

@@ -44,6 +44,9 @@ PASSES_PER_BOUND = 10
 SECOND_STEP_PASSES = 40
 SECOND_STEP_BETA = 32.0
 
+# Below this member size in element sides, `stiff_part` warns (`GridTooCoarse`).
+COARSE_BELOW_ELEMENTS = 5
+
 ROBUST_STEP = "robust"
 MEMBER_SIZE_STEP = "member size"
 
@@ -67,6 +70,13 @@ def member_size_bound(radius_in_elements: float) -> float:
             log_eps = (1.0 - share) * math.log10(EPS_OF_FIGURE_8[low]) + share * math.log10(EPS_OF_FIGURE_8[high])
             return 10.0**log_eps
     return EPS_OF_FIGURE_8[nodes[-1]]  # not reached
+
+
+class GridTooCoarse(UserWarning):
+    """Issued by ``stiff_part`` when the member size is fewer than five element sides (``size_mm / h < 5``):
+    on such a grid the member-size limit makes members thicker than asked. The message gives the member size
+    in elements and the element side that removes the effect. The run proceeds. The ratio is compared with a
+    relative tolerance of 1e-9, so that five elements given in decimal millimetres count as five."""
 
 
 @dataclass(frozen=True)
@@ -239,7 +249,8 @@ def stiff_part(
       cannot be reached without changing the layout it does not get there (``michell.member_size``). On a
       grid where the member size is fewer than about five elements it makes members thicker than asked:
       its threshold is that of the continuous filter, which a member exactly the asked size thick reaches
-      only on a fine grid (``member_threshold``).
+      only on a fine grid (``member_threshold``). ``stiff_part`` then warns (``GridTooCoarse``, below five
+      elements) and runs all the same.
 
     Refused arguments raise ``EngineError`` with code ``invalid_input`` (``michell.errors``) before any
     pass. An ``EngineError`` raised during a step leaves the function with the ``partial_result`` that
@@ -298,6 +309,15 @@ def stiff_part(
     if eps is None:
         eps = member_size_bound(size_mm / float(density_filter.element_size))
     eps = _positive_number(eps, "eps")
+    h = float(grid.h)
+    if size_mm / h < COARSE_BELOW_ELEMENTS * (1.0 - 1e-9):  # 0.35 mm / 0.07 mm gives 4.999999999999999
+        warnings.warn(
+            f"the member size {size_mm:g} mm is {size_mm / h:.3g} element sides of {h:g} mm, fewer than "
+            f"{COARSE_BELOW_ELEMENTS}: on such a grid the member-size limit makes members thicker than asked; a "
+            f"finer grid, with elements of at most {size_mm / COARSE_BELOW_ELEMENTS:g} mm, removes the effect",
+            GridTooCoarse,
+            stacklevel=2,
+        )
     chain = [*([keep_solid] if keep_solid is not None else []), *filters, density_filter]
     tail = [keep_solid] if keep_solid is not None else []
     mass = Mass()
@@ -392,6 +412,7 @@ def stiff_part(
 
 
 __all__ = [
+    "COARSE_BELOW_ELEMENTS",
     "EPS_OF_FIGURE_8",
     "MEMBER_SIZE_STEP",
     "PASSES_PER_BOUND",
@@ -400,6 +421,7 @@ __all__ = [
     "SECOND_STEP_BETA",
     "SECOND_STEP_PASSES",
     "SPREAD",
+    "GridTooCoarse",
     "RecipePass",
     "StiffPart",
     "member_size_bound",

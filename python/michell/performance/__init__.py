@@ -11,6 +11,11 @@ the calling process; ``run`` starts a fresh Python process for each size, so tha
 is that size's own, and collects their results with a description of the machine. The machine is described
 by its processor, core count, memory and operating system only: no host name, user name or path is
 written. ``michell.performance.page.render`` writes the page from the result.
+
+A size whose run fails still gives its record: what was measured up to the failure, with an ``"error"``
+entry that says what was raised and where (``measure``), or, when its process ended without giving a record,
+the process's exit status and the last lines of its error output (``run``). ``run`` writes the result
+collected so far after every size, so a run that is stopped leaves the sizes it finished.
 """
 
 from __future__ import annotations
@@ -19,12 +24,15 @@ import json
 import math
 import os
 import platform
+import re
+import socket
 import subprocess
 import sys
 import time
 import warnings
+from pathlib import Path
 
-from michell import __version__, engine_version, select
+from michell import EngineError, __version__, engine_version, select
 from michell.analysis3d import Grid3d
 from michell.errors import InvalidValue
 from michell.problem import LoadCase, Material, Problem
@@ -48,6 +56,7 @@ MEMBER_SIZE_MM = 3.0
 SIZES = (36, 46, 58, 72, 90)
 THREADS = 12
 SLOWEST = 10
+ERROR_LINES = 20  # the last lines of a process's error output kept when it gives no record
 
 
 class _CountingProblem(Problem):
@@ -138,12 +147,17 @@ def measure(size: int, threads: int = 1, passes_scale: float = 1.0) -> dict:
     def note(step, number, record):
         ends.append((step, time.perf_counter(), len(problem.solver_steps)))
 
+    part, error = None, None
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         started = time.perf_counter()
-        part = stiff_part(
-            problem, mass_g, MEMBER_SIZE_MM, schedule=schedule, second_step_passes=second_step_passes, callback=note
-        )
+        try:
+            part = stiff_part(
+                problem, mass_g, MEMBER_SIZE_MM, schedule=schedule, second_step_passes=second_step_passes,
+                callback=note,
+            )  # fmt: skip
+        except Exception as raised:  # every failure is recorded with the passes completed before it
+            error = raised
         total = time.perf_counter() - started
     seconds, steps = [], []
     by_step: dict[str, list[float]] = {ROBUST_STEP: [], MEMBER_SIZE_STEP: []}
@@ -153,7 +167,7 @@ def measure(size: int, threads: int = 1, passes_scale: float = 1.0) -> dict:
         by_step[step].append(end - before)
         steps.append(sum(problem.solver_steps[solves_before:solves]))
         before, solves_before = end, solves
-    result = part.result
+    result = None if part is None else part.result
     return {
         "size": size,
         "grid": [grid.nx, grid.ny, grid.nz],
@@ -174,13 +188,63 @@ def measure(size: int, threads: int = 1, passes_scale: float = 1.0) -> dict:
             "largest": max(problem.solver_steps, default=None),
             "solves": len(problem.solver_steps),
         },
-        "goal": float(result.goal),
-        "limits_met": all(result.limits_met),
-        "stop_reason": result.stop_reason,
+        "goal": None if result is None else float(result.goal),
+        "limits_met": None if result is None else all(result.limits_met),
+        "stop_reason": None if result is None else result.stop_reason,
         "warnings": sorted({type(w.message).__name__ for w in caught}),
         "seconds_of_each_pass": seconds,
         "solver_steps_of_each_pass": steps,
+        "error": None if error is None else _raised(error, len(seconds), sum(p for _, p in schedule)),
     }
+
+
+def _finite_or_none(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None if value is None else str(value)
+    return value if math.isfinite(value) else None
+
+
+def _raised(error: Exception, completed: int, robust_passes: int) -> dict:
+    """The ``"error"`` entry of a run that raised ``error`` after ``completed`` passes: the exception's class
+    name, its code and details (an ``EngineError``'s; ``None`` and ``{}`` otherwise), its message, the step
+    and the number in that step of the pass in which it was raised (as ``stiff_part`` gives them, or else
+    counted from the passes completed), and the number of that pass counted through the whole run."""
+    number = completed + 1
+    counted_step = ROBUST_STEP if number <= robust_passes else MEMBER_SIZE_STEP
+    counted_in_step = number if number <= robust_passes else number - robust_passes
+    step = getattr(error, "step", None) if isinstance(error, EngineError) else None
+    in_step = getattr(error, "pass_number", None) if isinstance(error, EngineError) else None
+    if step is None or in_step is None:
+        step, in_step = counted_step, counted_in_step
+    details = getattr(error, "details", None)
+    message = getattr(error, "message", None)
+    return {
+        "type": type(error).__name__,
+        "code": getattr(error, "code", None) if isinstance(error, EngineError) else None,
+        "message": _scrubbed(message if isinstance(message, str) else str(error)),
+        "details": (
+            {str(key): _finite_or_none(value) for key, value in details.items()} if isinstance(details, dict) else {}
+        ),
+        "step": step,
+        "pass_in_step": in_step,
+        "pass": number,
+        "exit_status": None,
+        "error_output": [],
+    }
+
+
+# A path: a run of /name or \name parts (after an optional drive letter or ~), not preceded by a letter, a
+# digit or a dot, so that a unit such as N/mm is left alone.
+_PATH = re.compile(r"(?<![\w.\\/])(?:[A-Za-z]:|~)?(?:[\\/][^\s\\/'\"(),:;]+)+[\\/]?")
+
+
+def _scrubbed(text: str) -> str:
+    """``text`` with every path cut to its file name and the machine's host name taken out."""
+    text = _PATH.sub(lambda found: re.split(r"[\\/]", found.group(0).rstrip("\\/"))[-1], text)
+    host = socket.gethostname()
+    for name in sorted({host, host.split(".")[0]} - {""}, key=len, reverse=True):
+        text = re.sub(rf"(?<![\w.-]){re.escape(name)}(?![\w.-])", "(host)", text)
+    return text
 
 
 def _cpu_model() -> str | None:
@@ -267,29 +331,94 @@ _CHILD = (
 )
 
 
-def run(sizes, threads: int = THREADS, passes_scale: float = 1.0, report=None) -> dict:
+def _record_of(size: int, child: subprocess.CompletedProcess) -> dict:
+    """The record the process for ``size`` printed last, or, when it printed none, the record of a run that
+    ended without one: the grid, nothing measured, and its exit status and last lines of error output."""
+    lines = (child.stdout or "").strip().splitlines()
+    try:
+        one = json.loads(lines[-1])
+    except (IndexError, ValueError):
+        one = None
+    if isinstance(one, dict) and one.get("size") == size:
+        return one
+    voxel = BLOCK_MM[1] / size
+    output = [_scrubbed(line.rstrip()) for line in (child.stderr or "").splitlines() if line.strip()]
+    return {
+        "size": size,
+        "grid": [2 * size, size, size],
+        "elements": 2 * size**3,
+        "voxel_mm": voxel,
+        "filter_radius_elements": MEMBER_SIZE_MM / voxel,
+        "passes": None,
+        "seconds_per_pass": {
+            "mean": None, "first_step_mean": None, "second_step_mean": None, "slowest_ten_mean": None,
+        },
+        "total_seconds": None,
+        "peak_memory_gb": None,
+        "solver_steps_per_solve": {"mean": None, "largest": None, "solves": None},
+        "goal": None,
+        "limits_met": None,
+        "stop_reason": None,
+        "warnings": [],
+        "seconds_of_each_pass": [],
+        "solver_steps_of_each_pass": [],
+        "error": {
+            "type": None, "code": None, "message": None, "details": {}, "step": None, "pass_in_step": None,
+            "pass": None, "exit_status": child.returncode, "error_output": output[-ERROR_LINES:],
+        },
+    }  # fmt: skip
+
+
+def write_json(path, data: dict) -> None:
+    """Writes ``data`` as JSON to ``path`` at once: to a temporary file beside it (``.<name>.part``), then
+    renamed over it, so that the file is never left half written."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.part")
+    try:
+        temporary.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def run(sizes, threads: int = THREADS, passes_scale: float = 1.0, report=None, out=None) -> dict:
     """Measures each size in a fresh Python process (``measure``) and returns the whole result:
     ``{"format": 1, "machine": ..., "problem": ..., "sizes": [...]}``. ``report``, if given, is called
-    with each size's measurements as they arrive. A process that fails raises ``RuntimeError``."""
+    with each size's record as it arrives. ``out``, if given, is the JSON file the result collected so far
+    is written to after every size (``write_json``).
+
+    A size that fails does not stop the others: its record has an ``"error"`` entry (``None`` for a size
+    that completed). A process that ends without printing its record (stopped, or out of memory) is recorded
+    with its exit status and the last lines of its error output, every path in them cut to its file name."""
     if isinstance(threads, bool) or not isinstance(threads, int) or threads < 1:
         raise InvalidValue(f"threads must be a whole number of at least 1; got {threads!r}")
     for size in sizes:
         _check_size(size)
-    description = problem_description(passes_scale)
-    measured = []
+    data = {"format": FORMAT, "machine": machine(threads), "problem": problem_description(passes_scale), "sizes": []}
     for size in sizes:
         child = subprocess.run(
             [sys.executable, "-c", _CHILD, str(size), str(threads), repr(float(passes_scale))],
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
         )
-        if child.returncode != 0:
-            raise RuntimeError(f"the run at size {size} failed with status {child.returncode}")
-        one = json.loads(child.stdout.strip().splitlines()[-1])
-        measured.append(one)
+        one = _record_of(size, child)
+        data["sizes"].append(one)
+        if out is not None:
+            write_json(out, data)
         if report is not None:
             report(one)
-    return {"format": FORMAT, "machine": machine(threads), "problem": description, "sizes": measured}
+    return data
 
 
-__all__ = ["cantilever", "machine", "measure", "peak_memory_gb", "problem_description", "run", "scaled_passes"]
+def failed(data: dict) -> list[dict]:
+    """The records of the sizes of ``data`` (a result of ``run``) that did not complete."""
+    return [one for one in data["sizes"] if one.get("error")]
+
+
+__all__ = [
+    "cantilever", "failed", "machine", "measure", "peak_memory_gb", "problem_description", "run", "scaled_passes",
+    "write_json",
+]  # fmt: skip

@@ -1,7 +1,7 @@
 # Performance
 
 This page gives the run time and the peak memory of `michell.recipes.stiff_part`, the library's whole procedure
-from a uniform start to a design, on one 3D problem at 2 grid sizes. The problem: a steel block of 40 by 20 by
+from a uniform start to a design, on one 3D problem at 3 grid sizes. The problem: a steel block of 40 by 20 by
 20 mm (Young's modulus 210000 MPa, Poisson ratio 0.3, 7.85 g/cm³), every degree of freedom held on its face
 x = 0, and a force of 1000 N down spread over the nodes of its face x = 40 mm as a uniform traction.
 `stiff_part` makes the stiffest part with at most 30 % of the block's mass and members at least 3 mm thick, with
@@ -33,6 +33,7 @@ process, is that size's own; it includes the interpreter and NumPy.
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 40 x 20 x 20 | 16,000 | 1 | 3 | 140 | 0.312 | 0.619 | 0.0812 | 28.5 | 141 |
 | 80 x 40 x 40 | 128,000 | 0.5 | 6 | 140 | 2.72 | 5.56 | 0.654 | 35 | 212 |
+| 120 x 60 x 60 | 432,000 | 0.333 | 9 | 116 | 14.1 | 31.6 | 2.24 | 48.8 | 1730 |
 
 Seconds per pass is the mean over every pass of the run, and the slowest ten the mean of its ten slowest passes.
 Solver steps per solve are the conjugate-gradient steps of one solve, as the mean over every solve of the run;
@@ -42,9 +43,14 @@ the largest solve is the one that took the most. The memory is in units of 10⁹
 |---|---:|---:|---:|---:|---|---|
 | 40 x 20 x 20 | 0.3 | 0.343 | 44 | 61.2 | no | passes |
 | 80 x 40 x 40 | 2.5 | 3.14 | 382 | 49.9 | yes | passes |
+| 120 x 60 x 60 | 13 | 21.2 | 1660 | | | failed |
 
 The compliance is that of the returned design, and its limits are its mass and its member-size value; the total
 is the time of the whole call of `stiff_part`.
+
+At 120 x 60 x 60 the run stopped in pass 117 of 140, pass 17 of the member-size step, with the error
+`solver_not_converged`: the solver did not reach the relative residual 1e-8 within 2000 steps; it reached
+3.2e-7.
 
 At 40 x 20 x 20 `stiff_part` warned: `GridTooCoarse`.
 
@@ -52,7 +58,7 @@ At 40 x 20 x 20 `stiff_part` warned: `GridTooCoarse`.
 
 From the repository, with the package installed:
 
-    python -m michell.performance run --sizes 20 40 --threads 4 --out docs/performance.json
+    python -m michell.performance run --sizes 20 40 60 --threads 4 --out docs/performance.json
     python -m michell.performance render docs/performance.json --out docs/performance.md
 
 The first command writes the measurements, with the time and the solver steps of every pass, to the JSON file;
@@ -63,7 +69,7 @@ the second writes this page from it. Run on another machine, they give that mach
 - They come from one machine, the one above, on 4 threads; another processor, another memory or another thread
   count gives other numbers.
 - The member size is fixed in millimetres (3 mm), so the filter radius counted in elements grows with the grid,
-  from 3 to 6 elements here, and the density filter's share of a pass grows with it: the time of a pass does not
+  from 3 to 9 elements here, and the density filter's share of a pass grows with it: the time of a pass does not
   follow the number of elements alone.
 - Another problem gives other numbers: the steps of a solve, and with them the time of a pass, depend on the
   shape, the supports, the loads and the design as it forms.

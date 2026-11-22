@@ -1,5 +1,6 @@
 """The performance page as Markdown, written from the result of ``michell.performance.run`` alone: every
-number on the page comes from that result."""
+number on the page comes from that result. A size that failed keeps its rows, with what was measured before
+the failure, and a sentence below the tables says where it stopped and why."""
 
 from __future__ import annotations
 
@@ -8,7 +9,9 @@ import textwrap
 from michell.row import g3
 
 NOT_REPORTED = "not reported"
+FAILED = "failed"
 WIDTH = 112
+STEP_NAMES = {"robust": "robust", "member size": "member-size"}
 
 
 def _wrap(text: str, first: str = "", rest: str = "") -> str:
@@ -30,6 +33,41 @@ def _bullet(text: str) -> str:
 
 def _number(value) -> str:
     return NOT_REPORTED if value is None else g3(value)
+
+
+def _count(value) -> str:
+    return NOT_REPORTED if value is None else str(value)
+
+
+def _sentence(text: str) -> str:
+    text = text.strip()
+    return text if text.endswith((".", "!", "?")) else f"{text}."
+
+
+def _failure(one: dict, planned: int) -> str:
+    """The sentence that says where the run at ``one``'s size stopped and with which error."""
+    error = one["error"]
+    if error.get("pass") is None:
+        status = error.get("exit_status")
+        ended = f"the process of the run ended with status {status}"
+        if isinstance(status, int) and status < 0:
+            ended += f" (stopped by signal {-status})"
+        output = error.get("error_output") or []
+        if output:
+            last = output[-1].replace("`", "'")
+            return (
+                f"At {_grid(one)} {ended} before it gave its measurements; the last line of its error output: "
+                f"`{last}`."
+            )
+        return f"At {_grid(one)} {ended} before it gave its measurements, with no error output."
+    step = STEP_NAMES.get(error["step"], error["step"])
+    name = error.get("code") or error.get("type")
+    stopped = (
+        f"At {_grid(one)} the run stopped in pass {error['pass']} of {planned}, pass {error['pass_in_step']} of the "
+        f"{step} step, with the error `{name}`"
+    )
+    message = (error.get("message") or "").strip()
+    return _sentence(f"{stopped}: {message}" if message else stopped)
 
 
 def _grid(one: dict) -> str:
@@ -106,7 +144,7 @@ def _results(data: dict) -> list[str]:
         seconds, steps = one["seconds_per_pass"], one["solver_steps_per_solve"]
         lines.append(
             f"| {_grid(one)} | {one['elements']:,} | {g3(one['voxel_mm'])} | {g3(one['filter_radius_elements'])} "
-            f"| {one['passes']} | {_number(seconds['mean'])} | {_number(seconds['slowest_ten_mean'])} "
+            f"| {_count(one['passes'])} | {_number(seconds['mean'])} | {_number(seconds['slowest_ten_mean'])} "
             f"| {_number(one['peak_memory_gb'])} | {_number(steps['mean'])} | {_number(steps['largest'])} |"
         )
     lines += [
@@ -124,10 +162,13 @@ def _results(data: dict) -> list[str]:
     ]
     for one in data["sizes"]:
         seconds = one["seconds_per_pass"]
+        if one.get("error"):
+            outcome = f" | | {FAILED} |"
+        else:
+            outcome = f" {g3(one['goal'])} | {'yes' if one['limits_met'] else 'no'} | {one['stop_reason']} |"
         lines.append(
             f"| {_grid(one)} | {_number(seconds['first_step_mean'])} | {_number(seconds['second_step_mean'])} "
-            f"| {g3(one['total_seconds'])} | {g3(one['goal'])} | {'yes' if one['limits_met'] else 'no'} "
-            f"| {one['stop_reason']} |"
+            f"| {_number(one['total_seconds'])} |{outcome}"
         )
     lines += [
         "",
@@ -136,6 +177,11 @@ def _results(data: dict) -> list[str]:
             "the total is the time of the whole call of `stiff_part`."
         ),
     ]
+    problem = data["problem"]
+    planned = sum(passes for _, passes in problem["schedule"]) + problem["second_step_passes"]
+    for one in data["sizes"]:
+        if one.get("error"):
+            lines += ["", _paragraph(_failure(one, planned))]
     for one in data["sizes"]:
         if one.get("warnings"):
             names = ", ".join(f"`{name}`" for name in one["warnings"])

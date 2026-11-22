@@ -3,6 +3,8 @@ the page from the measurements.
 
     python -m michell.performance run --sizes 36 46 58 72 90 --threads 12 --out performance.json
     python -m michell.performance render performance.json --out docs/performance.md
+
+``run`` writes the JSON after every size and ends with status 0 when every size completed, 1 when any failed.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ import argparse
 import json
 from pathlib import Path
 
-from michell.performance import SIZES, THREADS, run
+from michell.performance import SIZES, THREADS, failed, run
 from michell.performance.page import render
 
 
@@ -21,6 +23,15 @@ def _write(path: Path, text: str) -> None:
 
 
 def _report(one: dict) -> None:
+    error = one.get("error")
+    if error:
+        if error["pass"] is None:
+            what = f"the process ended with status {error['exit_status']} without giving its measurements"
+        else:
+            name = error["code"] or error["type"]
+            what = f"stopped in pass {error['pass']} ({error['step']} step) with {name}: {error['message']}"
+        print(f"size {one['size']:>3} ({one['elements']:,} elements) failed: {what}", flush=True)
+        return
     seconds = one["seconds_per_pass"]["mean"]
     print(
         f"size {one['size']:>3} ({one['elements']:,} elements): {one['passes']} passes in "
@@ -50,10 +61,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "run":
-        data = run(args.sizes, args.threads, args.passes_scale, report=_report)
-        _write(args.out, json.dumps(data, indent=1) + "\n")
+        data = run(args.sizes, args.threads, args.passes_scale, report=_report, out=args.out)
         print(f"written to {args.out}")
-        return 0
+        return 1 if failed(data) else 0
     page = render(json.loads(args.measurements.read_text(encoding="utf-8")))
     if args.out is None:
         print(page, end="")

@@ -1,0 +1,76 @@
+{
+ "format": 1,
+ "machine": {
+  "cpu": "Example Processor 3000",
+  "logical_cores": 8,
+  "memory_gb": 33.6,
+  "os": "Linux",
+  "os_version": "6.1.0",
+  "os_distribution": null,
+  "python": "3.12.1",
+  "michell": "0.0.1",
+  "engine": "0.0.1",
+  "threads": 4
+ },
+ "problem": {
+  "block_mm": [40.0, 20.0, 20.0],
+  "youngs_modulus_mpa": 210000.0,
+  "poisson_ratio": 0.3,
+  "density_g_cm3": 7.85,
+  "load_n": 1000.0,
+  "mass_share": 0.3,
+  "member_size_mm": 3.0,
+  "schedule": [[1.0, 21], [2.0, 14], [4.0, 14], [8.0, 14], [16.0, 18], [32.0, 19]],
+  "second_step_passes": 40,
+  "passes_per_bound": 10,
+  "passes_scale": 1.0
+ },
+ "sizes": [
+  {
+   "size": 20,
+   "grid": [40, 20, 20],
+   "elements": 16000,
+   "voxel_mm": 1.0,
+   "filter_radius_elements": 3.0,
+   "passes": 140,
+   "seconds_per_pass": {
+    "mean": 0.31234,
+    "first_step_mean": 0.30011,
+    "second_step_mean": 0.34291,
+    "slowest_ten_mean": 0.61872
+   },
+   "total_seconds": 44.0123,
+   "peak_memory_gb": 0.0812345,
+   "solver_steps_per_solve": {"mean": 28.4567, "largest": 141, "solves": 147},
+   "goal": 61.2345,
+   "limits_met": false,
+   "stop_reason": "passes",
+   "warnings": ["GridTooCoarse"],
+   "seconds_of_each_pass": [],
+   "solver_steps_of_each_pass": []
+  },
+  {
+   "size": 40,
+   "grid": [80, 40, 40],
+   "elements": 128000,
+   "voxel_mm": 0.5,
+   "filter_radius_elements": 6.0,
+   "passes": 140,
+   "seconds_per_pass": {
+    "mean": 2.71828,
+    "first_step_mean": 2.5,
+    "second_step_mean": 3.14159,
+    "slowest_ten_mean": 5.55555
+   },
+   "total_seconds": 381.966,
+   "peak_memory_gb": 0.654321,
+   "solver_steps_per_solve": {"mean": 35.0, "largest": 212, "solves": 147},
+   "goal": 49.8765,
+   "limits_met": true,
+   "stop_reason": "passes",
+   "warnings": [],
+   "seconds_of_each_pass": [],
+   "solver_steps_of_each_pass": []
+  }
+ ]
+}

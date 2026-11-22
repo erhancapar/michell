@@ -253,6 +253,17 @@ supports and load cases, the goal (`compliance`), the mass limit and the `min_me
 `result.json`, `result.npz` and, if asked, `result.vtk`. The goal, the limit and the rule name the modules of
 this page; the file accepts the ones that exist and refuses any other by name.
 
+`michell.performance` measures the run time and the peak memory of `stiff_part` on one 3D cantilever (a steel
+block of 40 by 20 by 20 mm on 2m by m by m elements, held on its face x = 0, loaded on its far face) at several
+sizes m. `python -m michell.performance run --sizes ... --threads ... --out FILE` runs each size in a fresh
+Python process, so that the peak memory is that size's own, times every pass through the callback, counts the
+conjugate-gradient steps of every solve, and writes one JSON file with `"format": 1`: the machine (processor,
+cores, memory, operating system, Python and package versions, threads; nothing that names the machine, its user
+or a path) and per size the grid, the time per pass, the peak memory, the steps per solve and the outcome;
+`--passes-scale` shortens the schedule for short runs. `python -m michell.performance render FILE --out PAGE`
+writes the page `docs/performance.md` from that file alone, and a test checks that the committed page is the
+one its committed JSON gives.
+
 ## Two small examples
 
 ```python

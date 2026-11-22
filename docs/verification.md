@@ -19,7 +19,9 @@ then the member-size limit) on a 3D bridge and measures the design it returns, a
 voxeliser, which turns closed triangle meshes into the share of every voxel inside them, against exact
 volumes, as the voxels are halved, on bodies whose edges and vertices lie exactly on its rays and on 1 and 12
 threads, and the voxel model of a part built from design, solid and void regions; and it checks supports and
-loads placed on that model by the bodies they touch against closed forms and against a part set up by hand. The measure, the set-up and the limit of every row were fixed before its first result
+loads placed on that model by the bodies they touch against closed forms and against a part set up by hand; and
+it checks a part given as a problem file with STL files, and the `michell run` command on it, against the same
+part set up by hand. The measure, the set-up and the limit of every row were fixed before its first result
 was computed, with four exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
 were set after trial runs; and in row 30 the convergence measure (the largest error over 8 placements of
@@ -167,8 +169,27 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 32 | Supports and loads: bore loaded through a pin, active voxels at a loaded node outside the nominal design at 0.5 | property of the design | 0 | ≤ 0 | pass | 264 loaded nodes, 280 active voxels at them |
 | 32 | Supports and loads: the same pin load with skin=False is refused | property of the design | 0 | ≤ 0 | pass | load 0 of load case 'pin' (on a body from (27.01, 7.01, 0) to (32.99, 12.99, 10) mm) has skin=False, and 240 of its 240 contact faces lie on design voxels that are neither held solid nor on a closed face of the grid: the filtered design cannot become solid there. Hold the voxels behind it solid (a solid region), or leave the skin on |
 | 32 | Supports and loads: the example bridge set up through michell.attach, compliance of the full stiff_part run against the example's | independent computation | 0 | ≤ 1e-09 | pass | 8.95 against 8.95 N mm, 1 thread(s), 140 passes |
+| 33 | Problem file: the example bridge prepared from its file, active voxels that differ from the hand-built example's | independent computation | 0 | ≤ 0 | pass | 12000 voxels from STL regions and marker bodies; 1032 held solid, 1650 held degrees of freedom |
+| 33 | Problem file: the example bridge prepared from its file, held-solid voxels that differ from the hand-built example's | independent computation | 0 | ≤ 0 | pass | 12000 voxels from STL regions and marker bodies; 1032 held solid, 1650 held degrees of freedom |
+| 33 | Problem file: the example bridge prepared from its file, held degrees of freedom that differ from the hand-built example's | independent computation | 0 | ≤ 0 | pass | 12000 voxels from STL regions and marker bodies; 1032 held solid, 1650 held degrees of freedom |
+| 33 | Problem file: the example bridge prepared from its file, entries of the load vector that differ from the hand-built example's | independent computation | 0 | ≤ 0 | pass | 12000 voxels from STL regions and marker bodies; 1032 held solid, 1650 held degrees of freedom |
+| 33 | Problem file: the example bridge, mass bound against the hand-built example's (g) | independent computation | 0 | ≤ 0 | pass | max_fraction 0.30 gives 28.259999999999994 g, the example 28.259999999999994 g |
+| 33 | Problem file: the example bridge, faces of the density filter that differ from the hand-built example's | independent computation | 0 | ≤ 0 | pass | x- closed, x+ closed, y- empty, y+ empty, z- empty, z+ empty |
+| 33 | Problem file: a copy of the example with one bad edit is refused with invalid_toml (0 when refused with it) | property of the design | 0 | ≤ 0 | pass | '[grid]' written '[grid': invalid_toml |
+| 33 | Problem file: a copy of the example with one bad edit is refused with unknown_schema (0 when refused with it) | property of the design | 0 | ≤ 0 | pass | 'schema = "michell/0"' written 'schema = "michell/1"': unknown_schema at schema |
+| 33 | Problem file: a copy of the example with one bad edit is refused with unknown_key (0 when refused with it) | property of the design | 0 | ≤ 0 | pass | 'poisson_ratio = 0.3' written 'poissons_ratio = 0.3': unknown_key at material.poissons_ratio |
+| 33 | Problem file: a copy of the example with one bad edit is refused with missing_key (0 when refused with it) | property of the design | 0 | ≤ 0 | pass | 'voxel_mm = 1.0' removed: missing_key at grid.voxel_mm |
+| 33 | Problem file: a copy of the example with one bad edit is refused with wrong_type (0 when refused with it) | property of the design | 0 | ≤ 0 | pass | 'voxel_mm = 1.0' written 'voxel_mm = "1.0"': wrong_type at grid.voxel_mm |
+| 33 | Problem file: a copy of the example with one bad edit is refused with out_of_range (0 when refused with it) | property of the design | 0 | ≤ 0 | pass | 'poisson_ratio = 0.3' written 'poisson_ratio = 0.5': out_of_range at material.poisson_ratio |
+| 33 | Problem file: a copy of the example with one bad edit is refused with unknown_name (0 when refused with it) | property of the design | 0 | ≤ 0 | pass | 'on = "clamp_high"' written 'on = "clamp_hihg"': unknown_name at supports[1].on |
+| 33 | Problem file: a copy of the example with one bad edit is refused with duplicate_name (0 when refused with it) | property of the design | 0 | ≤ 0 | pass | 'load_pad = "load_pad.stl"' written 'pad = "load_pad.stl"': duplicate_name at bodies.pad |
+| 33 | Problem file: a copy of the example with one bad edit is refused with file_not_found (0 when refused with it) | property of the design | 0 | ≤ 0 | pass | 'design = "envelope.stl"' written 'design = "envelop.stl"': file_not_found at regions.design |
+| 33 | Problem file: a copy of the example with one bad edit is refused with not_available_yet (0 when refused with it) | property of the design | 0 | ≤ 0 | pass | 'size_mm = 5.0' written 'size_mm = 5.0\n\n[[rules]]\nmodule = "symmetry"\nplanes = ["y"]': not_available_yet at rules[1].module |
+| 33 | Problem file: michell run on the example bridge, compliance in result.json against the hand-built example's | independent computation | 0 | ≤ 1e-09 | pass | 8.95 against 8.95 N mm, 1 thread(s), 140 passes; exit status 0 (0); result.json format 2, goal compliance |
+| 33 | Problem file: michell run on the example bridge, largest relative difference of the limit values in result.json from the hand-built example's | independent computation | 0 | ≤ 1e-09 | pass | mass 28.259953901057585 against 28.259953901057585 g, member-size value 9.99993061892938e-08 against 9.99993061892938e-08 |
+| 33 | Problem file: michell run on the example bridge, entries of limits_met in result.json that differ from the hand-built example's | independent computation | 0 | ≤ 0 | pass | limits_met [True, True] against [True, True] |
 
-130 passed, 0 failed, 0 not run.
+149 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 
@@ -180,6 +201,7 @@ Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`, and
 CalculiX (`tools/reference/make_calculix_reference.py` writes it; CalculiX is not needed to run the row);
 row 9 solves its problems a second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy,
 row 16 solves the 3D system directly with SciPy, and rows 27 and 28 measure their members with SciPy's
-morphological opening. Without them those rows are listed as not run. The command
+morphological opening. Row 33 reads the example problem file in `examples/bridge_file/` (the folder
+`examples` beside `tests/`, or `--examples`). Without them those rows are listed as not run. The command
 exits with status 1 when a row fails (and, with `--require-all`, when a row was not run). The test suite runs
 the same functions.

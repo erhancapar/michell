@@ -152,7 +152,7 @@ the eroded, the nominal and the dilated design of one set of variables, top to b
 
 ## Building from source
 
-Requirements: Rust 1.85 or later ([rustup.rs](https://rustup.rs)) and Python 3.10 or later.
+Requirements: Rust 1.85 or later ([rustup.rs](https://rustup.rs)) and Python 3.11 or later.
 
     pip install .
     michell --version

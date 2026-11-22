@@ -1,28 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "michell problem file, draft 0",
-  "description": "Draft. The format becomes real in milestone 3 of docs/roadmap.md and may change until then. See docs/design/problem-file.md.",
+  "title": "michell problem file, schema michell/0",
+  "description": "The problem file as michell reads it now (TOML, read into this structure). The reader, michell.problem_file.read, is the reference: it checks the same keys, types and ranges and refuses with a stable code and the key's path. Keys the format reserves for later (geometry, output.mesh, the symmetry rule, moment_n_mm, pressure_mpa, remote_force_n) are refused with not_available_yet. Units: mm, N, MPa, g/cm3, g. See docs/design/problem-file.md.",
   "type": "object",
-  "required": ["schema", "regions", "grid", "material", "supports", "load_cases", "goal"],
+  "required": ["schema", "regions", "grid", "material", "supports", "load_cases", "goal", "limits"],
   "additionalProperties": false,
   "properties": {
     "schema": { "const": "michell/0" },
-    "geometry": {
-      "type": "object",
-      "description": "One STEP file whose named bodies are the regions. Leave out when every region is its own STL file.",
-      "required": ["file"],
-      "additionalProperties": false,
-      "properties": { "file": { "type": "string" } }
-    },
     "regions": {
       "type": "object",
       "required": ["design"],
       "additionalProperties": false,
       "properties": {
-        "design": { "$ref": "#/$defs/body", "description": "The space the part may fill." },
-        "solid": { "type": "array", "items": { "$ref": "#/$defs/body" }, "description": "Must stay material." },
-        "void": { "type": "array", "items": { "$ref": "#/$defs/body" }, "description": "Must stay empty." }
+        "design": { "$ref": "#/$defs/file", "description": "The space the part may fill." },
+        "solid": { "$ref": "#/$defs/files", "description": "Must stay material: name to STL file." },
+        "void": { "$ref": "#/$defs/files", "description": "Must stay empty: name to STL file." }
       }
+    },
+    "bodies": {
+      "$ref": "#/$defs/files",
+      "description": "Marker bodies, name to STL file: where supports and loads act. Every name of regions.solid, regions.void and bodies, and 'design', is used once."
     },
     "grid": {
       "type": "object",
@@ -35,7 +32,7 @@
       "required": ["youngs_modulus_mpa", "poisson_ratio", "density_g_cm3"],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
         "youngs_modulus_mpa": { "type": "number", "exclusiveMinimum": 0 },
         "poisson_ratio": { "type": "number", "exclusiveMinimum": -1, "exclusiveMaximum": 0.5 },
         "density_g_cm3": { "type": "number", "exclusiveMinimum": 0 }
@@ -46,17 +43,19 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["on", "fix"],
+        "required": ["on"],
         "additionalProperties": false,
         "properties": {
-          "on": { "$ref": "#/$defs/body" },
+          "on": { "$ref": "#/$defs/on" },
           "fix": {
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
             "items": { "enum": ["x", "y", "z"] },
-            "description": "The directions held. A support may hold one direction only."
-          }
+            "default": ["x", "y", "z"],
+            "description": "The directions held."
+          },
+          "skin": { "type": "boolean", "default": true }
         }
       }
     },
@@ -68,8 +67,8 @@
         "required": ["name", "loads"],
         "additionalProperties": false,
         "properties": {
-          "name": { "type": "string", "minLength": 1 },
-          "weight": { "type": "number", "exclusiveMinimum": 0, "default": 1.0 },
+          "name": { "type": "string", "minLength": 1, "description": "Each load case has its own name." },
+          "weight": { "type": "number", "minimum": 0, "default": 1.0 },
           "loads": {
             "type": "array",
             "minItems": 1,
@@ -78,8 +77,9 @@
               "required": ["on", "force_n"],
               "additionalProperties": false,
               "properties": {
-                "on": { "$ref": "#/$defs/body" },
-                "force_n": { "$ref": "#/$defs/vector", "description": "Total force on the region, in newtons." }
+                "on": { "$ref": "#/$defs/on" },
+                "force_n": { "$ref": "#/$defs/vector", "description": "The total force, in N." },
+                "skin": { "type": "boolean", "default": true }
               }
             }
           }
@@ -89,57 +89,98 @@
     "goal": {
       "type": "object",
       "required": ["module", "sense"],
+      "additionalProperties": false,
       "properties": {
-        "module": { "type": "string" },
-        "sense": { "enum": ["min", "max"] }
-      },
-      "description": "Further keys are the module's own settings."
+        "module": { "const": "compliance" },
+        "sense": { "const": "min" }
+      }
     },
     "limits": {
       "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
       "items": {
         "type": "object",
         "required": ["module"],
-        "anyOf": [{ "required": ["max"] }, { "required": ["min"] }],
+        "additionalProperties": false,
+        "oneOf": [{ "required": ["max"] }, { "required": ["max_fraction"] }],
         "properties": {
-          "module": { "type": "string" },
-          "max": { "type": "number" },
-          "min": { "type": "number" }
-        },
-        "description": "The bound is in the module's own unit. Further keys are the module's own settings."
+          "module": { "const": "mass" },
+          "max": { "type": "number", "exclusiveMinimum": 0, "description": "In g." },
+          "max_fraction": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1,
+            "description": "Of the mass of the whole part, every active voxel solid."
+          }
+        }
       }
     },
     "rules": {
       "type": "array",
+      "maxItems": 1,
       "items": {
         "type": "object",
-        "required": ["module"],
-        "properties": { "module": { "type": "string" } },
-        "description": "Shape rules, applied in the order listed. Further keys are the module's own settings."
+        "required": ["module", "size_mm"],
+        "additionalProperties": false,
+        "properties": {
+          "module": { "const": "min_member" },
+          "size_mm": { "type": "number", "exclusiveMinimum": 0 }
+        },
+        "description": "Without a min_member rule the member size is five voxel sides."
       }
     },
     "run": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "max_passes": { "type": "integer", "minimum": 1 },
-        "threads": { "type": "integer", "minimum": 1 }
+        "threads": { "type": "integer", "minimum": 1, "default": 1 },
+        "filter_faces": {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": { "^[xyz][-+]$": { "enum": ["closed", "empty"] } },
+          "description": "Overrides of the density filter's faces of the grid."
+        }
       }
     },
     "output": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "folder": { "type": "string" },
-        "mesh": { "type": "array", "uniqueItems": true, "items": { "enum": ["stl", "3mf"] } }
+        "folder": { "type": "string", "minLength": 1, "default": "out" },
+        "fields": { "type": "array", "uniqueItems": true, "items": { "enum": ["vtk"] } }
       }
     }
   },
   "$defs": {
-    "body": {
+    "file": {
       "type": "string",
       "minLength": 1,
-      "description": "The name of a body in the STEP file, or the path of an STL file."
+      "description": "The path of an STL file, relative to the problem file."
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/file" }
+    },
+    "on": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "description": "A solid region or a marker body, by name." },
+        {
+          "type": "object",
+          "required": ["box_mm"],
+          "additionalProperties": false,
+          "properties": {
+            "box_mm": {
+              "type": "array",
+              "prefixItems": [{ "$ref": "#/$defs/vector" }, { "$ref": "#/$defs/vector" }],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "The low and high corners, in mm."
+            }
+          }
+        }
+      ]
     },
     "vector": {
       "type": "array",

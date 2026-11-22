@@ -1,12 +1,208 @@
-"""The `michell` command."""
+"""The ``michell`` command.
+
+    michell check FILE [--threads N] [--json]
+    michell run FILE [--out DIR] [--threads N] [--json]
+    michell --version
+
+``check`` reads a problem file, builds the voxel model and places the supports and loads, and prints what it
+found; it solves nothing (``michell.problem_file.prepare``). ``run`` does the same, then the optimisation,
+and writes the outcome (``michell.problem_file.run``). With ``--json`` the standard output holds one JSON
+object and nothing else; the line printed after every pass of ``run`` then goes to standard error.
+
+Exit status: 0 when the file is accepted (``check``) or the run met its limits (``run``); 1 when the run
+finished but a limit is not met; 2 when the input is refused: anything refused before the first pass (the
+problem file, the geometry, the set-up, a part that is not held, an output folder that cannot be made, and
+the command line itself, which ``argparse`` refuses with a usage line on standard error and nothing on
+standard output); 3 when the engine fails during the passes (an ``EngineError`` of the engine, such as
+``solver_not_converged``, rather than a refusal of ``michell.errors``) or anything else goes wrong (code
+``internal_error``).
+"""
+
+from __future__ import annotations
 
 import argparse
+import json
+import sys
+import warnings
 
 from michell import __version__, engine_version
+from michell._engine import EngineError
+from michell.errors import _Refused
+from michell.export import _plain
+from michell.problem_file import Prepared, RunOutcome, _optimise, _prepare
+
+LIMITS_MET, LIMITS_NOT_MET, REFUSED, ENGINE_FAILED = 0, 1, 2, 3
+
+
+def _error(error: EngineError, file: str) -> dict:
+    if hasattr(error, "as_dict"):
+        return error.as_dict()
+    return {
+        "code": getattr(error, "code", "internal_error"),
+        "path": getattr(error, "path", ""),
+        "file": file,
+        "message": getattr(error, "message", str(error)),
+        "details": dict(getattr(error, "details", {}) or {}),
+    }
+
+
+def _print_error(error: dict) -> None:
+    where = f" at {error['path']}" if error["path"] else ""
+    print(f"michell: refused, {error['code']}{where}: {error['message']}", file=sys.stderr)
+
+
+def _numbers(values, unit: str = "") -> str:
+    return "(" + ", ".join(f"{v:.4g}" for v in values) + ")" + (f" {unit}" if unit else "")
+
+
+def _check_lines(summary: dict) -> list[str]:
+    """The prepared problem for people, one item per line."""
+    grid, set_up = summary["grid"], summary["set_up"]
+    nx, ny, nz = grid["counts"]
+    lines = [
+        f"{summary['problem_file']['name']}: read and checked (sha256 {summary['problem_file']['sha256'][:12]})",
+        f"grid: {nx} x {ny} x {nz} voxels of {grid['voxel_mm']:g} mm, corner at {_numbers(grid['origin_mm'], 'mm')}; "
+        f"{grid['active']} active, {grid['held_solid']} held solid ({grid['held_solid_regions']} by the solid "
+        f"regions), {grid['design']} design",
+        f"bodies of the part: {set_up['bodies']['count']}"
+        + (f" (sizes in voxels {set_up['bodies']['sizes']})" if set_up["bodies"]["sizes"] else ""),
+        "volumes (mm3): name, role, exact, sampled, voxels",
+    ]
+    for row in summary["volumes"]:
+        exact = "-" if row["exact_mm3"] is None else f"{row['exact_mm3']:.6g}"
+        lines.append(f"  {row['name']}, {row['role']}, {exact}, {row['sampled_mm3']:.6g}, {row['voxels_mm3']:.6g}")
+    material = set_up["material"]
+    lines.append(
+        f"material: {material['name'] or 'unnamed'}, E {material['youngs_modulus_mpa']:g} MPa, Poisson's ratio "
+        f"{material['poisson_ratio']:g}, {material['density_g_cm3']:g} g/cm3"
+    )
+    for line in set_up["supports"] + set_up["loads"]:
+        where = (
+            f"{line['faces']} contact faces, {line['area_mm2']:.4g} mm2"
+            if line["rule"] == "contact"
+            else f"{line['voxels']} voxels, {line['volume_mm3']:.4g} mm3"
+        )
+        if line["role"] == "support":
+            what = f"holds {''.join(line['fix'])}"
+        else:
+            what = f"force {_numbers(line['force_n'], 'N')}, {100 * line['dropped_share']:.3g} % on held nodes"
+        skin = f"; skin {line['skin_voxels']} voxels, {line['skin_mass_g']:.4g} g" if line["skin_voxels"] else ""
+        closed = f"; on closed face {', '.join(line['closed_faces'])}" if line["closed_faces"] else ""
+        lines.append(
+            f"{line['key']} on {line['on']}: {where}, {line['nodes']} nodes, {what}, at "
+            f"{_numbers(line['point_mm'], 'mm')}{skin}{closed}"
+        )
+    faces = ", ".join(f"{face} {word}" for face, word in set_up["filter_faces"].items())
+    lines.append(f"density filter faces: {faces}; inactive voxels {set_up['inactive']}")
+    goal, mass, size = set_up["goal"], set_up["mass_limit"], set_up["member_size"]
+    lines.append(f"goal: {goal['module']}, {goal['sense']}")
+    source = (
+        f"max_fraction {mass['max_fraction']:g} of {mass['part_mass_g']:.6g} g" if "max_fraction" in mass else "max"
+    )
+    lines.append(f"mass bound: {mass['max_g']:.6g} g ({source}; held solid {mass['held_mass_g']:.6g} g)")
+    given = "given" if size["given"] else "not given: five voxel sides"
+    lines.append(f"member size: {size['size_mm']:g} mm, {size['voxels']:.3g} voxels ({given})")
+    lines.append(f"threads: {set_up['threads']}")
+    for item in summary["warnings"]:
+        lines.append(f"warning ({item['category']}): {item['message']}")
+    return lines
+
+
+def _run_summary(outcome: RunOutcome) -> dict:
+    result = outcome.part.result
+    bounds = outcome.part.passes[-1].bounds if outcome.part.passes else None
+    return _plain(
+        {
+            "goal": result.goal,
+            "limits": result.limits,
+            "bounds": bounds,
+            "limits_met": result.limits_met,
+            "feasible": result.feasible,
+            "stop_reason": result.stop_reason,
+            "passes": len(outcome.part.passes),
+            "threads": result.threads,
+            "seconds": {"prepare": outcome.prepared.seconds, "optimise": outcome.seconds},
+            "files": {kind: str(path) for kind, path in outcome.paths.items()},
+            "warnings": [w.as_dict() for w in outcome.warnings],
+        }
+    )
+
+
+def _pass_line(step: str, number: int, record) -> str:
+    limits = ", ".join(f"{value:.4g} (at most {bound:.4g})" for value, bound in zip(record.limits, record.bounds))
+    return f"{step:11} pass {number:3}, beta {record.beta:4g}: compliance {record.goal:.5g} N mm, limits {limits}"
+
+
+def _prepared(args) -> Prepared:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # kept in Prepared.warnings and printed from there
+        return _prepare(args.file, args.threads)
+
+
+def _check(args) -> int:
+    try:
+        prepared = _prepared(args)
+    except EngineError as error:
+        return _refused(args, "check", error)
+    summary = prepared.summary()
+    if args.json:
+        print(json.dumps({"command": "check", "exit": 0, "prepared": summary}, allow_nan=False))
+    else:
+        print("\n".join(_check_lines(summary)))
+    return 0
+
+
+def _refused(args, command: str, error: EngineError, status: int = REFUSED) -> int:
+    data = _error(error, args.file)
+    if args.json:
+        print(json.dumps({"command": command, "exit": status, "error": _plain(data)}, allow_nan=False))
+    else:
+        _print_error(data)
+    return status
+
+
+def _run(args) -> int:
+    try:
+        prepared = _prepared(args)
+    except EngineError as error:
+        return _refused(args, "run", error)
+    out = sys.stderr if args.json else sys.stdout
+    if not args.json:
+        print("\n".join(_check_lines(prepared.summary())), file=out)
+
+    def show(step, number, record):
+        print(_pass_line(step, number, record), file=out, flush=True)
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # kept in RunOutcome.warnings and printed from there
+            outcome = _optimise(prepared, args.out, show)
+    except EngineError as error:
+        status = REFUSED if isinstance(error, _Refused) else ENGINE_FAILED
+        return _refused(args, "run", error, status)
+    summary = _run_summary(outcome)
+    status = LIMITS_MET if outcome.limits_met else LIMITS_NOT_MET
+    if args.json:
+        print(json.dumps({"command": "run", "exit": status, "result": summary}, allow_nan=False))
+        return status
+    new = outcome.warnings[len(prepared.warnings) :]
+    for item in new:
+        print(f"warning ({item.category.__name__}): {item.message}")
+    limits = ", ".join(
+        f"{value:.6g} (at most {bound:.6g}, {'met' if met else 'NOT met'})"
+        for value, bound, met in zip(summary["limits"], summary["bounds"], summary["limits_met"])
+    )
+    print(f"compliance {summary['goal']:.8g} N mm; limits (mass g, member size) {limits}")
+    print(
+        f"{summary['passes']} passes in {summary['seconds']['optimise']:.1f} s on {summary['threads']} thread(s); "
+        f"stopped by {summary['stop_reason']}"
+    )
+    print("written: " + ", ".join(summary["files"].values()))
+    return status
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the `michell` command; `michell --version` prints the package and engine versions."""
+    """Run the ``michell`` command (``check``, ``run``, ``--version``) and return its exit status."""
     parser = argparse.ArgumentParser(
         prog="michell",
         description="Generative design by topology optimisation.",
@@ -16,9 +212,33 @@ def main(argv: list[str] | None = None) -> int:
         action="version",
         version=f"michell {__version__} (engine {engine_version()})",
     )
-    parser.parse_args(argv)
-    parser.print_help()
-    return 0
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
+    check = commands.add_parser("check", help="read and check a problem file and set it up; solve nothing")
+    run = commands.add_parser("run", help="run a problem file and write the outcome")
+    for command in (check, run):
+        command.add_argument("file", help="the problem file (TOML)")
+        command.add_argument("--threads", type=int, metavar="N", help="threads (default: the file's [run] threads)")
+        command.add_argument("--json", action="store_true", help="print one JSON object, nothing else")
+    run.add_argument("--out", metavar="DIR", help="the output folder (default: the file's [output] folder)")
+    args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return 0
+    try:
+        return _check(args) if args.command == "check" else _run(args)
+    except Exception as error:  # a fault of michell itself, or of the machine (a disk that is full)
+        data = {
+            "code": "internal_error",
+            "path": "",
+            "file": args.file,
+            "message": f"{type(error).__name__}: {error}",
+            "details": {},
+        }
+        if args.json:
+            print(json.dumps({"command": args.command, "exit": ENGINE_FAILED, "error": data}))
+        else:
+            _print_error(data)
+        return ENGINE_FAILED
 
 
 if __name__ == "__main__":

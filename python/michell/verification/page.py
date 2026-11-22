@@ -26,7 +26,9 @@ then the member-size limit) on a 3D bridge and measures the design it returns, a
 voxeliser, which turns closed triangle meshes into the share of every voxel inside them, against exact
 volumes, as the voxels are halved, on bodies whose edges and vertices lie exactly on its rays and on 1 and 12
 threads, and the voxel model of a part built from design, solid and void regions; and it checks supports and
-loads placed on that model by the bodies they touch against closed forms and against a part set up by hand. The measure, the set-up and the limit of every row were fixed before its first result
+loads placed on that model by the bodies they touch against closed forms and against a part set up by hand; and
+it checks a part given as a problem file with STL files, and the `michell run` command on it, against the same
+part set up by hand. The measure, the set-up and the limit of every row were fixed before its first result
 was computed, with four exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
 were set after trial runs; and in row 30 the convergence measure (the largest error over 8 placements of
@@ -51,7 +53,8 @@ Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`, and
 CalculiX (`tools/reference/make_calculix_reference.py` writes it; CalculiX is not needed to run the row);
 row 9 solves its problems a second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy,
 row 16 solves the 3D system directly with SciPy, and rows 27 and 28 measure their members with SciPy's
-morphological opening. Without them those rows are listed as not run. The command
+morphological opening. Row 33 reads the example problem file in `examples/bridge_file/` (the folder
+`examples` beside `tests/`, or `--examples`). Without them those rows are listed as not run. The command
 exits with status 1 when a row fails (and, with `--require-all`, when a row was not run). The test suite runs
 the same functions."""
 

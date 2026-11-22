@@ -14,6 +14,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 michell.workspace = true
-# abi3-py310: one wheel per platform that works on every Python from 3.10 up.
-pyo3 = { workspace = true, features = ["abi3-py310"] }
+# abi3-py311: one wheel per platform that works on every Python from 3.11 up.
+pyo3 = { workspace = true, features = ["abi3-py311"] }
 numpy.workspace = true

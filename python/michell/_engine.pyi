@@ -16,7 +16,8 @@ class EngineError(Exception):
     ``code`` is stable (``invalid_input``, ``singular_system``, ``solver_not_converged``,
     ``internal_error``), ``message`` is for
     people, ``details`` holds the numbers involved. The checks written in Python raise it as well, with code
-    ``invalid_input`` (see ``michell.errors``). An ``EngineError`` that leaves ``michell.optimise``
+    ``invalid_input`` (see ``michell.errors``), and a refused problem file with a code of its own per kind
+    of fault (``unknown_key``, ``missing_key``, ...; ``michell.errors.ProblemFileError``). An ``EngineError`` that leaves ``michell.optimise``
     also has ``partial_result``, the result of the passes completed before it (see ``optimise``).
     """
 

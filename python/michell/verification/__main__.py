@@ -1,6 +1,6 @@
 """``python -m michell.verification``: runs every verification row and writes the table.
 
-    python -m michell.verification --reference tests/reference --out docs/verification.md
+python -m michell.verification --reference tests/reference --out docs/verification.md
 """
 
 from __future__ import annotations
@@ -19,12 +19,15 @@ def main(argv: list[str] | None = None) -> int:
         description="Run the verification rows of the engine and write the verification table.",
     )
     parser.add_argument("--reference", type=Path, help="the folder that holds top88/ and calculix/ (tests/reference)")
+    parser.add_argument(
+        "--examples", type=Path, help="the folder that holds bridge_file/ (default: examples beside tests/)"
+    )
     parser.add_argument("--out", type=Path, help="write the Markdown page here (default: print it)")
     parser.add_argument("--commit", help="the commit to name on the page")
     parser.add_argument("--require-all", action="store_true", help="count a row that was not run as a failure")
     args = parser.parse_args(argv)
 
-    rows = all_rows(args.reference)
+    rows = all_rows(args.reference, args.examples)
     page = render(rows, __version__, engine_version(), args.commit)
     if args.out is None:
         print(page)

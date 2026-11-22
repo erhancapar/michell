@@ -237,6 +237,14 @@ made with `michell.mesh`) becomes a grid, its active voxels and the voxels held 
 How the voxeliser decides, how the classes are taken from the union of the regions, and the volume table it
 reports are in [geometry.md](geometry.md).
 
+The whole chain, from STL files to a written outcome, is one problem file (TOML), described in
+[problem-file.md](problem-file.md): the regions and marker bodies, the voxel side, the material, the
+supports and load cases, the goal (`compliance`), the mass limit and the `min_member` rule. `michell check`
+(`michell.prepare`) reads it, builds the voxel model and places the supports and loads with
+`michell.attach.set_up`, solving nothing; `michell run` (`michell.run`) then runs `stiff_part` on it and writes
+`result.json`, `result.npz` and, if asked, `result.vtk`. The goal, the limit and the rule name the modules of
+this page; the file accepts the ones that exist and refuses any other by name.
+
 ## Two small examples
 
 ```python

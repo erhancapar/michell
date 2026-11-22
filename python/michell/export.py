@@ -5,10 +5,11 @@
 a ``STRUCTURED_POINTS`` data set whose points are the nodes of the grid and whose cells are its elements,
 with the fields as ``CELL_DATA``. It needs no package beyond NumPy.
 
-``write_result(path, result)`` writes a ``Result`` of ``optimise`` or a ``StiffPart`` of ``stiff_part`` as two
-files beside each other, ``<path>.npz`` (every array, NumPy's own format) and ``<path>.json`` (everything
-else); ``read_result(path)`` reads both back into a plain dictionary. Either file is read by ``numpy.load``
-or ``json.load`` alone.
+``write_result(path, result, *, record=None)`` writes a ``Result`` of ``optimise`` or a ``StiffPart`` of
+``stiff_part`` as two files beside each other, ``<path>.npz`` (every array, NumPy's own format) and
+``<path>.json`` (everything else; with ``record``, the record of a run from a problem file as well);
+``read_result(path)`` reads both back into a plain dictionary, whichever format the JSON file has. Either
+file is read by ``numpy.load`` or ``json.load`` alone.
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ from michell.recipes import StiffPart
 
 TITLE = "michell fields"
 RESULT_FORMAT = 1
+# The format of a result written with the record of a run from a problem file (``michell.run``).
+RUN_RESULT_FORMAT = 2
 
 
 def write_vtk(path: str | os.PathLike, grid, **fields) -> None:
@@ -104,10 +107,11 @@ def _files(path: str | os.PathLike) -> tuple[str, str]:
     return base + ".npz", base + ".json"
 
 
-def write_result(path: str | os.PathLike, result: Result | StiffPart) -> None:
+def write_result(path: str | os.PathLike, result: Result | StiffPart, *, record: dict | None = None) -> None:
     """Write ``result``, a ``Result`` (``optimise``) or a ``StiffPart`` (``stiff_part``), as two files beside
     each other: ``<path>.npz`` with every array and ``<path>.json`` with everything else. ``path`` is given
-    without an extension; existing files of those names are replaced.
+    without an extension; existing files of those names are replaced. ``record``, a dictionary of plain data,
+    adds its keys to the JSON file, which then has format 2 (below).
 
     The arrays (``numpy.savez``, uncompressed, the values bit for bit as held): ``x`` and ``density``, and for
     each named design ``design_<name>`` (its field after the last pass). A ``StiffPart`` adds ``filtered``,
@@ -136,7 +140,26 @@ def write_result(path: str | os.PathLike, result: Result | StiffPart) -> None:
 
     ``goal``, ``limits`` and ``limits_met`` are ``null`` where the ``Result`` holds ``None`` (a partial result
     whose design could not be evaluated). Every number that is not finite is written as ``null``, so the file
-    is strict JSON."""
+    is strict JSON.
+
+    Format 2, written with ``record`` (``michell.run`` writes it), has every key of format 1, with ``format``
+    2, and these new keys, the record of a run from a problem file:
+
+    - ``problem_file``: the problem file's ``name`` and ``sha256`` (of its bytes);
+    - ``geometry``: each geometry file, with its ``key`` in the problem file, ``role``, ``name``, ``file``
+      (the path as written) and ``sha256``;
+    - ``grid``: ``counts``, ``voxel_mm``, ``origin_mm`` (the grid's corner in the meshes' coordinates) and
+      the numbers of voxels, active voxels, voxels held solid (with and without the skins) and design voxels;
+    - ``volumes``: the volume table of the voxel model (``michell.regions.VolumeRow``, one object per line);
+    - ``set_up``: the set-up report (``michell.problem_file.Prepared.summary``): bodies, material, goal,
+      mass limit, member size, each support and load (what it acts on, its faces or voxels, nodes, point of
+      action, force and the share dropped on held degrees of freedom, the held skin), the density filter's
+      faces and the thread count;
+    - ``warnings``: each warning given (``category`` and ``message``);
+    - ``files``: the names of the files written beside the JSON file, the JSON file among them;
+    - ``seconds``: the seconds the preparation and the optimisation took.
+
+    A key of ``record`` that format 1 already has is refused."""
     if isinstance(result, StiffPart):
         part, run = result, result.result
     elif isinstance(result, Result):
@@ -158,7 +181,7 @@ def write_result(path: str | os.PathLike, result: Result | StiffPart) -> None:
         "stop_reason": run.stop_reason,
         "threads": run.threads,
         "designs": list(run.designs),
-        "passes": [asdict(record) for record in run.passes],
+        "passes": [asdict(item) for item in run.passes],
     }
     if part is not None:
         arrays.update(filtered=part.filtered, nominal=part.nominal, first_step_nominal=part.first_step_nominal)
@@ -166,8 +189,16 @@ def write_result(path: str | os.PathLike, result: Result | StiffPart) -> None:
             arrays["thresholds"] = part.member_size.thresholds
         if part.passes:
             summary["bounds"] = part.passes[-1].bounds
-        summary["passes"] = [asdict(record) for record in part.passes]
+        summary["passes"] = [asdict(item) for item in part.passes]
         summary.update(eps=part.eps, threshold=part.threshold, value_at_switch=part.value_at_switch, scale=part.scale)
+    if record is not None:
+        if not isinstance(record, dict):
+            raise InvalidType(f"record is a dict of plain data; got {type(record).__name__}")
+        taken = sorted(set(record) & set(summary))
+        if taken:
+            raise InvalidValue(f"record may not replace the keys of format {RESULT_FORMAT}; got {taken}")
+        summary["format"] = RUN_RESULT_FORMAT
+        summary.update(record)
     arrays_path, summary_path = _files(path)
     with open(arrays_path, "wb") as file:
         np.savez(file, **{name: np.asarray(values) for name, values in arrays.items()})
@@ -178,8 +209,8 @@ def write_result(path: str | os.PathLike, result: Result | StiffPart) -> None:
 
 def read_result(path: str | os.PathLike) -> dict:
     """Read the two files that ``write_result`` wrote for ``path`` (given without an extension) and return a
-    plain dictionary: the content of ``<path>.json`` (its keys are listed in ``write_result``), with the
-    arrays of ``<path>.npz`` added under the key ``"arrays"``, a dictionary from each array's name to the
+    plain dictionary: the content of ``<path>.json`` (format 1 or 2; the keys are listed in ``write_result``),
+    with the arrays of ``<path>.npz`` added under the key ``"arrays"``, a dictionary from each array's name to the
     array. It does not rebuild ``Result`` or ``StiffPart`` objects: the responses, filters and limits of the
     run are not in the files."""
     arrays_path, summary_path = _files(path)
@@ -190,4 +221,4 @@ def read_result(path: str | os.PathLike) -> dict:
     return summary
 
 
-__all__ = ["RESULT_FORMAT", "TITLE", "read_result", "write_result", "write_vtk"]
+__all__ = ["RESULT_FORMAT", "RUN_RESULT_FORMAT", "TITLE", "read_result", "write_result", "write_vtk"]

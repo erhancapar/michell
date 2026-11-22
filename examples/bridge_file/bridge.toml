@@ -1,0 +1,57 @@
+# The bridge of examples/bridge_3d_member_size.py as a problem file: a block 50 x 24 x 10 mm of steel,
+# clamped at both ends, 1000 N down on a pad in the middle of its top face; the stiffest bridge with 30 % of
+# the block's mass and members at least 5 mm thick.
+#
+#     michell check examples/bridge_file/bridge.toml
+#     michell run examples/bridge_file/bridge.toml
+
+schema = "michell/0"
+
+[regions]
+design = "envelope.stl"                     # where material may be
+solid = { plate_low = "plate_low.stl", plate_high = "plate_high.stl", pad = "pad.stl" }   # must stay material
+
+[bodies]                                    # marker bodies: where the part is held and loaded
+clamp_low = "clamp_low.stl"
+clamp_high = "clamp_high.stl"
+load_pad = "load_pad.stl"
+
+[grid]
+voxel_mm = 1.0
+
+[material]
+name = "steel"
+youngs_modulus_mpa = 210000
+poisson_ratio = 0.3
+density_g_cm3 = 7.85
+
+[[supports]]
+on = "clamp_low"                            # held where the part touches this body
+fix = ["x", "y", "z"]
+
+[[supports]]
+on = "clamp_high"
+fix = ["x", "y", "z"]
+
+[[load_cases]]
+name = "pad"
+loads = [ { on = "load_pad", force_n = [0, 0, -1000] } ]
+
+[goal]
+module = "compliance"
+sense = "min"
+
+[[limits]]
+module = "mass"
+max_fraction = 0.30                         # of the whole block's mass, every voxel solid
+
+[[rules]]
+module = "min_member"
+size_mm = 5.0
+
+[run]
+threads = 1
+
+[output]
+folder = "out"
+fields = ["vtk"]

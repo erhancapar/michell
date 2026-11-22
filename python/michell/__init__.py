@@ -41,6 +41,12 @@ The package holds:
   given by what its loads act on) and ``set_up``, which turns them into a ``Problem``, the voxels held
   solid (the solid regions and a skin under every contact patch on design voxels) and the density filter's
   faces, with a report, as a ``SetUp``; the warning ``LoadOnSupport``;
+- ``michell.problem_file``: the problem file (TOML, ``docs/design/problem-file.md``): ``read`` (the file
+  checked into a ``ProblemFile``), ``prepare`` (the geometry, the voxel model and the set-up, solving
+  nothing: what ``michell check`` shows) and ``run`` (``prepare``, ``stiff_part`` and the files
+  ``result.json``, ``result.npz`` and optionally ``result.vtk``: what ``michell run`` does), also as
+  ``michell.prepare`` and ``michell.run``; its refusals are the ``ProblemFileError`` family of
+  ``michell.errors``, one stable code per kind of fault;
 - ``dot``, the dot product of two vectors in the engine, for responses (with the OpenBLAS build that NumPy
   ships, ``a @ b`` runs long products on every core);
 - ``EngineError``, the error every engine call raises; the checks written in Python raise it too, with
@@ -75,10 +81,11 @@ from michell.modules import Filter, Partials, Response
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, LimitNotMet, Pass, Result, optimise
 from michell.problem import LoadCase, Material, Problem
-from michell import attach, export, mesh, recipes, regions, select
+from michell import attach, export, mesh, problem_file, recipes, regions, select
 from michell.attach import Case, Load, LoadOnSupport, SetUp, Support, set_up
 from michell.export import read_result, write_result, write_vtk
 from michell.mesh import Mesh, read_stl, write_stl
+from michell.problem_file import Prepared, ProblemFile, RunOutcome, prepare, run
 from michell.recipes import GridTooCoarse, RecipePass, StiffPart, member_size_bound, stiff_part
 from michell.regions import VolumeRow, VoxelModel, VoxelVolumeDiffers, voxel_model
 from michell.responses import Compliance, Mass
@@ -117,12 +124,15 @@ __all__ = [
     "OptimalityCriteria",
     "Partials",
     "Pass",
+    "Prepared",
     "Problem",
+    "ProblemFile",
     "Projection",
     "RecipePass",
     "Response",
     "Result",
     "Row",
+    "RunOutcome",
     "SetUp",
     "StiffPart",
     "Support",
@@ -143,11 +153,14 @@ __all__ = [
     "mesh",
     "on",
     "optimise",
+    "prepare",
+    "problem_file",
     "read_result",
     "read_stl",
     "recipes",
     "regions",
     "robust_designs",
+    "run",
     "select",
     "set_up",
     "stiff_part",

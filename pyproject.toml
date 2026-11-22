@@ -7,7 +7,7 @@ name = "michell"
 dynamic = ["version"]  # taken from Cargo.toml, so Rust and Python share one version number
 description = "Generative design by topology optimisation, with a Rust engine."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"  # tomllib reads the problem file
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 authors = [{ name = "Erhan Çapar" }]
@@ -15,6 +15,11 @@ dependencies = ["numpy>=2.0"]  # the oldest NumPy the tests are run against
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Rust",
     "Topic :: Scientific/Engineering",
 ]

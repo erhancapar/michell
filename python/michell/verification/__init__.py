@@ -33,7 +33,10 @@ and the refusal of a region too thin for the voxels. Row 32 checks supports and 
 (``michell.attach``): a bar pulled by a face load and a bar under a region load against their closed forms,
 the force sums, a bore loaded through a pin with the held skin in a short run of ``stiff_part``, and the
 example bridge set up from regions and marker bodies against the example's own arrays and, in its slow line,
-its compliance.
+its compliance. Row 33 checks the problem file (``michell.problem_file``): the example bridge written as a
+problem file with STL regions and marker bodies (``examples/bridge_file/``) prepared against the example's
+own arrays and mass bound, ``michell run`` on it against the example's run, and one refusal for each kind of
+fault of the file; it reads the example's folder and reports "not run" when it is absent.
 """
 
 from __future__ import annotations
@@ -90,13 +93,24 @@ from michell.verification.solver3d_rows import (
 )
 from michell.verification.mma_rows import row_9_published_optima, row_10_mbb_with_mma
 from michell.verification.optimisation_rows import row_7_gradients, row_8_mbb_with_oc
+from michell.verification.problem_file_rows import row_33_problem_file, row_33_run
 from michell.verification.recipe_rows import row_28_recipe_bridge
 from michell.verification.robust_rows import row_21_projection, row_22_robust_gradients, row_23_robust_mbb
 
 
-def all_rows(reference: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 32 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
-    the repository: ``tests/reference``)."""
+def examples_beside(reference: Path | str | None) -> Path | None:
+    """The folder ``examples`` two levels above ``reference`` (the repository's, for ``tests/reference``), or
+    None without ``reference``."""
+    return None if reference is None else Path(reference).absolute().parent.parent / "examples"
+
+
+def all_rows(reference: Path | str | None = None, examples: Path | str | None = None) -> list[Row]:
+    """Runs rows 1 to 33 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
+    the repository: ``tests/reference``); ``examples`` the folder that holds ``bridge_file/`` (in the
+    repository: ``examples``), by default the folder ``examples`` two levels above ``reference`` (the
+    repository's, when ``reference`` is ``tests/reference``)."""
+    if examples is None:
+        examples = examples_beside(reference)
     rows = []
     rows += row_1_element_matrix()
     rows += row_2_patch_test()
@@ -140,6 +154,8 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_32_attach()
     rows += row_32_bore()
     rows += row_32_bridge_compliance()
+    rows += row_33_problem_file(examples)
+    rows += row_33_run(examples)
     return rows
 
 
@@ -157,6 +173,7 @@ __all__ = [
     "ROW_17_DETACHED_CASES",
     "Row",
     "all_rows",
+    "examples_beside",
     "row_1_element_matrix",
     "row_2_patch_test",
     "row_3_pure_shear",
@@ -195,4 +212,6 @@ __all__ = [
     "row_32_attach",
     "row_32_bore",
     "row_32_bridge_compliance",
+    "row_33_problem_file",
+    "row_33_run",
 ]

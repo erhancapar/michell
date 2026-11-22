@@ -16,5 +16,8 @@ build/
 python/michell/*.so
 python/michell/*.pyd
 
+# The output of the example problem file, when run where it lies
+/examples/bridge_file/out/
+
 # Local working notes for the next session (never public)
 /HANDOFF.md

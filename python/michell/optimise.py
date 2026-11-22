@@ -112,8 +112,9 @@ class LimitNotMet(UserWarning):
 @dataclass(frozen=True)
 class Result:
     """The design variables and density after the last pass, the record of every pass, and the number of
-    threads the solves ran on. ``density`` is the output of ``filters``; with named designs, ``designs``
-    maps each name to that design's field after the last pass (empty without named designs).
+    threads the solves and the MMA updates ran on. ``density`` is the output of ``filters``; with named
+    designs, ``designs`` maps each name to that design's field after the last pass (empty without named
+    designs).
 
     Each record holds the values at the start of its pass, so the last recorded goal belongs to the design
     before the last update: one update behind ``x``, ``density`` and ``designs``. ``goal`` and ``limits``

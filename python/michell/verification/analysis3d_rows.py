@@ -1,6 +1,6 @@
 """Verification rows 11 to 15: the 3D analysis against an exact integration, closed forms and an
-independently assembled stiffness matrix, and the same numbers on any thread count (the Helmholtz filter
-and the density filter included).
+independently assembled stiffness matrix, and the same numbers on any thread count (the Helmholtz filter,
+the density filter and the MMA update included).
 
 Each row's measure, set-up and limit were fixed before any result was computed. Unless a row says
 otherwise: unit cube elements, Poisson ratio 0.3, solves to a relative residual of 1e-10.
@@ -12,7 +12,7 @@ import itertools
 
 import numpy as np
 
-from michell._engine import element_stiffness_3d
+from michell._engine import Mma, element_stiffness_3d
 from michell.analysis3d import Elasticity3d, Grid3d
 from michell.filters import DensityFilter, HelmholtzFilter
 from michell.row import CLOSED_FORM, INDEPENDENT_COMPUTATION, REPEATABILITY, Row, checked, g3, not_run
@@ -395,5 +395,66 @@ def row_15_thread_count() -> list[Row]:
             f"filter forward and backward; every array also compared byte for "
             f"byte; {nx} x {ny} x {nz} elements, {grid.n_dofs} degrees of freedom ({blocks} blocks of a sum), "
             f"{int((~active).sum())} outside the part, random densities, held displacements",
+        )
+    ]
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Row 15, the MMA update. Limit: three updates in a row on 1, 2, 5 and 12 threads give bit-for-bit the same
+# designs: the largest absolute difference from the run on 1 thread is exactly 0, and every design is equal
+# byte for byte. Set-up: 200 000 variables between 0 and 1, from x_j = 0.2 + 0.6 frac(0.618034 j); the goal
+# (1/n) sum_j c_j / (x_j + 0.1), convex, with c_j = 0.5 + frac(0.754878 j); two limits, the mean of x at
+# most 0.4 (violated at the start, where the mean is about 0.5) and (1/n) sum_j b_j x_j^2 at most 0.35, with
+# b_j = 0.5 + frac(0.56984 j). The goal and the limits are evaluated afresh at each design, so the third
+# update moves its asymptotes by the rule for the two designs before it.
+
+ROW_15_MMA_VARIABLES = 200_000
+ROW_15_MMA_UPDATES = 3
+
+
+def row_15_mma_problem(x: np.ndarray) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
+    """The goal, its gradient, the two limits written f_i <= 0 and their gradients (one row per limit)."""
+    n = x.size
+    j = np.arange(n)
+    c = 0.5 + (j * 0.754878) % 1.0
+    b = 0.5 + (j * 0.56984) % 1.0
+    goal = float(np.sum(c / (x + 0.1)) / n)
+    d_goal = -c / (x + 0.1) ** 2 / n
+    limits = np.array([x.mean() - 0.4, float(np.sum(b * x**2)) / n - 0.35])
+    d_limits = np.ascontiguousarray(np.stack([np.full(n, 1.0 / n), 2.0 * b * x / n]))
+    return goal, d_goal, limits, d_limits
+
+
+def row_15_mma_thread_count() -> list[Row]:
+    n = ROW_15_MMA_VARIABLES
+    start = 0.2 + 0.6 * ((np.arange(n) * 0.618034) % 1.0)
+    excess_at_start = row_15_mma_problem(start)[2][0]
+    runs = []
+    for threads in ROW_15_THREADS:
+        mma = Mma(np.zeros(n), np.ones(n), 2, threads)
+        x, designs = start, []
+        for _ in range(ROW_15_MMA_UPDATES):
+            x = mma.update(x, *row_15_mma_problem(x))
+            designs.append(x)
+        runs.append(designs)
+    first = runs[0]
+    largest, identical = 0.0, True
+    for run in runs[1:]:
+        for a, b in zip(first, run):
+            largest = max(largest, float(np.abs(a - b).max()))
+            identical = identical and a.tobytes() == b.tobytes()
+    threads = ", ".join(str(t) for t in ROW_15_THREADS[:-1]) + f" and {ROW_15_THREADS[-1]}"
+    return [
+        Row(
+            15,
+            f"MMA update gives the same designs on {threads} threads",
+            REPEATABILITY,
+            largest,
+            0.0,
+            bool(identical and largest == 0.0),
+            f"largest absolute difference from the run on 1 thread over the designs of {ROW_15_MMA_UPDATES} "
+            f"updates in a row, every design also compared byte for byte; {n} variables "
+            f"({-(-n // SUM_BLOCK_LENGTH)} blocks of a sum), a convex goal and two limits, one of them "
+            f"violated at the start (by {g3(excess_at_start)})",
         )
     ]

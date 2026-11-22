@@ -1,5 +1,6 @@
 """Verification rows 11 to 15: the 3D analysis against an exact integration, closed forms and an
-independently assembled stiffness matrix, and the same numbers on any thread count.
+independently assembled stiffness matrix, and the same numbers on any thread count (the MMA update
+included).
 
 The rows themselves (set-up, measure, limit) are in `michell.verification`; these tests run them and
 assert that they pass. `pytest -s -k row` prints what each row measured.
@@ -37,3 +38,7 @@ def test_row_14_matrix_free_product_equals_the_assembled_matrix():
 
 def test_row_15_the_same_numbers_on_1_2_5_and_12_threads_and_on_a_repeated_run():
     assert_rows_pass(verification.row_15_thread_count())
+
+
+def test_row_15_the_mma_update_gives_the_same_designs_on_1_2_5_and_12_threads():
+    assert_rows_pass(verification.row_15_mma_thread_count())

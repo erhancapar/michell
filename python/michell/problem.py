@@ -54,10 +54,11 @@ class Problem:
     freedom stays at zero, and a load case that loads one is refused. The modulus of an element of density
     rho is E(rho) = e_min + rho^penalty (E_0 - e_min) (modified SIMP); ``e_min`` defaults to 1e-9 E_0.
 
-    ``threads`` (the number of threads every solve runs on), ``solver_tolerance`` (the relative residual at
-    which a solve stops) and ``solver_max_steps`` (the steps allowed before ``solver_not_converged``) are
-    settings of the 3D analysis; on a 2D grid they must keep their defaults, since the direct solver has
-    none of them. A solve of a design whose solid is joined to the supports takes tens of steps, about a
+    ``threads`` (the number of threads every solve and every MMA update runs on), ``solver_tolerance`` (the
+    relative residual at which a solve stops) and ``solver_max_steps`` (the steps allowed before
+    ``solver_not_converged``) are settings of the 3D analysis; on a 2D grid they must keep their defaults,
+    since the direct solver has none of them. A solve of a design whose solid is joined to the supports
+    takes tens of steps, about a
     hundred on an intricate 0-and-1 design; solid joined to the rest only through void (detached islands,
     whose stiffness is ``e_min``) raises the count by a large factor (verification row 17 gives the
     counts), and the default of 5000 leaves room for that. A load on void alone does not (same row).

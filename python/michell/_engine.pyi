@@ -306,14 +306,18 @@ class Mma:
     between ``x_min`` and ``x_max`` and ``n_limits`` limits written f_i(x) <= 0.
 
     The object remembers the two previous designs and the asymptotes, so one ``Mma`` belongs to one run.
+    Every update runs on ``threads`` threads (default 1, at least 1); the designs do not depend on how many
+    there are.
     """
 
     n_variables: int
     n_limits: int
+    threads: int
+    """The number of threads every update runs on."""
     iteration: int
     """How many updates have been made."""
 
-    def __init__(self, x_min: Vector, x_max: Vector, n_limits: int) -> None: ...
+    def __init__(self, x_min: Vector, x_max: Vector, n_limits: int, threads: int = 1) -> None: ...
     def asymptotes(self) -> tuple[Vector, Vector]:
         """The lower and upper asymptotes of the last update."""
 

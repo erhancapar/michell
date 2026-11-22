@@ -51,7 +51,8 @@ class MovingAsymptotes:
         self._bounds = np.array([float(limit.at_most) for limit in limits])
         self._limit_scales = np.array([limit_scale(limit) for limit in limits])
         self._goal_scale: float | None = None  # the goal is first known at the first update
-        self._engine = _engine.Mma(np.zeros(n), np.ones(n), len(limits))
+        # The update runs on the problem's threads; its designs do not depend on how many there are.
+        self._engine = _engine.Mma(np.zeros(n), np.ones(n), len(limits), problem.threads)
 
     def update(
         self,

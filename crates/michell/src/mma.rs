@@ -46,11 +46,17 @@
 //! the primal-dual interior-point method of the 2007 note: see `mma_subproblem.rs` (which also says in
 //! what units it writes each limit). Its x is the next design.
 //!
+//! Threads. Every loop over the variables (parts 2 to 4 and the subproblem solver) runs on the threads of
+//! `threads.rs` (`Mma::with_threads`); the sums over the variables (r_i of part 4, and those of the solver)
+//! are taken by the block rule of that file, also on one thread, so the next design is the same on every
+//! thread count. The check of the inputs runs on the calling thread.
+//!
 //! The formulas and constants above were checked against the 2007 note. They are written from the
 //! method's definition in the two papers; no other program's code was used.
 
 use crate::error::EngineError;
 use crate::mma_subproblem::{self, Subproblem};
+use crate::threads::Threads;
 
 /// Asymptotes of the first two iterations: this fraction of x_max - x_min on each side of x.
 pub const ASYMPTOTE_START: f64 = 0.5;
@@ -92,12 +98,26 @@ pub struct Mma {
     /// The asymptotes of the previous update.
     lower: Vec<f64>,
     upper: Vec<f64>,
+    /// The threads every update runs on.
+    threads: Threads,
 }
 
 impl Mma {
     /// An MMA update for variables between `x_min` and `x_max` (with `x_min < x_max` for each) and
-    /// `n_limits` limits.
+    /// `n_limits` limits, on one thread.
     pub fn new(x_min: Vec<f64>, x_max: Vec<f64>, n_limits: usize) -> Result<Mma, EngineError> {
+        Mma::with_threads(x_min, x_max, n_limits, 1)
+    }
+
+    /// The MMA update of `new` on `threads` threads (at least 1), with the same designs on every thread
+    /// count.
+    pub fn with_threads(
+        x_min: Vec<f64>,
+        x_max: Vec<f64>,
+        n_limits: usize,
+        threads: usize,
+    ) -> Result<Mma, EngineError> {
+        let threads = Threads::new(threads)?;
         if x_min.len() != x_max.len() {
             return Err(
                 EngineError::invalid_input("x_min and x_max need the same length")
@@ -130,6 +150,7 @@ impl Mma {
             x_before_previous: vec![0.0; n],
             lower: vec![0.0; n],
             upper: vec![0.0; n],
+            threads,
         })
     }
 
@@ -139,6 +160,11 @@ impl Mma {
 
     pub fn n_limits(&self) -> usize {
         self.n_limits
+    }
+
+    /// The number of threads every update runs on.
+    pub fn threads(&self) -> usize {
+        self.threads.count()
     }
 
     /// How many updates have been made.
@@ -172,17 +198,18 @@ impl Mma {
         let (lower, upper) = self.new_asymptotes(x);
 
         // Part 3: the move limits.
-        let mut alpha = vec![0.0; n];
-        let mut beta = vec![0.0; n];
-        for j in 0..n {
+        let alpha = self.threads.vector(n, |j| {
             let range = self.x_max[j] - self.x_min[j];
-            alpha[j] = self.x_min[j]
+            self.x_min[j]
                 .max(lower[j] + ASYMPTOTE_MARGIN * (x[j] - lower[j]))
-                .max(x[j] - MOVE_FRACTION * range);
-            beta[j] = self.x_max[j]
+                .max(x[j] - MOVE_FRACTION * range)
+        });
+        let beta = self.threads.vector(n, |j| {
+            let range = self.x_max[j] - self.x_min[j];
+            self.x_max[j]
                 .min(upper[j] - ASYMPTOTE_MARGIN * (upper[j] - x[j]))
-                .min(x[j] + MOVE_FRACTION * range);
-        }
+                .min(x[j] + MOVE_FRACTION * range)
+        });
 
         // Part 4: the approximations of the goal and of each limit.
         let (p0, q0, _) = self.approximation(x, goal, d_goal, &lower, &upper);
@@ -201,21 +228,24 @@ impl Mma {
         let a = vec![A; m];
         let c = vec![C; m];
         let d = vec![D; m];
-        let solution = mma_subproblem::solve(&Subproblem {
-            lower: &lower,
-            upper: &upper,
-            alpha: &alpha,
-            beta: &beta,
-            p0: &p0,
-            q0: &q0,
-            p: &p,
-            q: &q,
-            r: &r,
-            a0: A0,
-            a: &a,
-            c: &c,
-            d: &d,
-        })?;
+        let solution = mma_subproblem::solve_on(
+            &Subproblem {
+                lower: &lower,
+                upper: &upper,
+                alpha: &alpha,
+                beta: &beta,
+                p0: &p0,
+                q0: &q0,
+                p: &p,
+                q: &q,
+                r: &r,
+                a0: A0,
+                a: &a,
+                c: &c,
+                d: &d,
+            },
+            &self.threads,
+        )?;
 
         // Only a successful update changes what the object remembers.
         self.x_before_previous = std::mem::replace(&mut self.x_previous, x.to_vec());
@@ -228,39 +258,42 @@ impl Mma {
     /// part 2 of the header: the asymptotes for the design x.
     fn new_asymptotes(&self, x: &[f64]) -> (Vec<f64>, Vec<f64>) {
         let n = self.n_variables();
-        let mut lower = vec![0.0; n];
-        let mut upper = vec![0.0; n];
-        for j in 0..n {
-            let range = self.x_max[j] - self.x_min[j];
-            // `iteration` counts the updates already made: 0 and 1 mean this is the first or second.
-            if self.iteration < 2 {
-                lower[j] = x[j] - ASYMPTOTE_START * range;
-                upper[j] = x[j] + ASYMPTOTE_START * range;
-            } else {
-                let trend =
-                    (x[j] - self.x_previous[j]) * (self.x_previous[j] - self.x_before_previous[j]);
-                let gamma = if trend < 0.0 {
-                    ASYMPTOTE_CLOSER
-                } else if trend > 0.0 {
-                    ASYMPTOTE_WIDER
-                } else {
-                    1.0
-                };
-                lower[j] = x[j] - gamma * (self.x_previous[j] - self.lower[j]);
-                upper[j] = x[j] + gamma * (self.upper[j] - self.x_previous[j]);
-                lower[j] = lower[j]
-                    .max(x[j] - ASYMPTOTE_FARTHEST * range)
-                    .min(x[j] - ASYMPTOTE_NEAREST * range);
-                upper[j] = upper[j]
-                    .min(x[j] + ASYMPTOTE_FARTHEST * range)
-                    .max(x[j] + ASYMPTOTE_NEAREST * range);
-            }
+        let range = |j: usize| self.x_max[j] - self.x_min[j];
+        // `iteration` counts the updates already made: 0 and 1 mean this is the first or second.
+        if self.iteration < 2 {
+            return (
+                self.threads
+                    .vector(n, |j| x[j] - ASYMPTOTE_START * range(j)),
+                self.threads
+                    .vector(n, |j| x[j] + ASYMPTOTE_START * range(j)),
+            );
         }
+        let gamma = |j: usize| {
+            let trend =
+                (x[j] - self.x_previous[j]) * (self.x_previous[j] - self.x_before_previous[j]);
+            if trend < 0.0 {
+                ASYMPTOTE_CLOSER
+            } else if trend > 0.0 {
+                ASYMPTOTE_WIDER
+            } else {
+                1.0
+            }
+        };
+        let lower = self.threads.vector(n, |j| {
+            (x[j] - gamma(j) * (self.x_previous[j] - self.lower[j]))
+                .max(x[j] - ASYMPTOTE_FARTHEST * range(j))
+                .min(x[j] - ASYMPTOTE_NEAREST * range(j))
+        });
+        let upper = self.threads.vector(n, |j| {
+            (x[j] + gamma(j) * (self.upper[j] - self.x_previous[j]))
+                .min(x[j] + ASYMPTOTE_FARTHEST * range(j))
+                .max(x[j] + ASYMPTOTE_NEAREST * range(j))
+        });
         (lower, upper)
     }
 
     /// part 4 of the header: p_j, q_j and r of one function with value `value` and gradient `gradient`
-    /// at x.
+    /// at x. The sum in r is taken by the block rule of `threads.rs`.
     fn approximation(
         &self,
         x: &[f64],
@@ -270,20 +303,24 @@ impl Mma {
         upper: &[f64],
     ) -> (Vec<f64>, Vec<f64>, f64) {
         let n = self.n_variables();
-        let mut p = vec![0.0; n];
-        let mut q = vec![0.0; n];
-        let mut r = value;
-        for j in 0..n {
+        let p = self.threads.vector(n, |j| {
             let ux = upper[j] - x[j];
+            let positive = gradient[j].max(0.0);
+            let negative = (-gradient[j]).max(0.0);
+            let convexity = CONVEXITY_TERM / (self.x_max[j] - self.x_min[j]);
+            ux * ux * (MAIN_WEIGHT * positive + SMALL_WEIGHT * negative + convexity)
+        });
+        let q = self.threads.vector(n, |j| {
             let xl = x[j] - lower[j];
             let positive = gradient[j].max(0.0);
             let negative = (-gradient[j]).max(0.0);
             let convexity = CONVEXITY_TERM / (self.x_max[j] - self.x_min[j]);
-            p[j] = ux * ux * (MAIN_WEIGHT * positive + SMALL_WEIGHT * negative + convexity);
-            q[j] = xl * xl * (SMALL_WEIGHT * positive + MAIN_WEIGHT * negative + convexity);
-            r -= p[j] / ux + q[j] / xl;
-        }
-        (p, q, r)
+            xl * xl * (SMALL_WEIGHT * positive + MAIN_WEIGHT * negative + convexity)
+        });
+        let terms = self
+            .threads
+            .sum(n, |j| p[j] / (upper[j] - x[j]) + q[j] / (x[j] - lower[j]));
+        (p, q, value - terms)
     }
 
     fn check_inputs(
@@ -485,6 +522,61 @@ mod tests {
                 "variable {j}: {stationarity}"
             );
         }
+    }
+
+    /// The goal (1/n) sum_j c_j / (x_j + 0.1), convex, and two limits: the mean of x at most 0.4
+    /// (violated at the start, where it is about 0.5) and (1/n) sum_j b_j x_j^2 at most 0.35.
+    fn made_up_problem(x: &[f64]) -> (f64, Vec<f64>, Vec<f64>, Vec<f64>) {
+        let n = x.len();
+        let size = n as f64;
+        let spread = |j: usize, step: f64| (j as f64 * step) % 1.0;
+        let (mut goal, mut mean, mut square) = (0.0, -0.4, -0.35);
+        let mut d_goal = vec![0.0; n];
+        let mut d_limits = vec![0.0; 2 * n];
+        for j in 0..n {
+            let c = 0.5 + spread(j, 0.754_878);
+            let b = 0.5 + spread(j, 0.569_840);
+            goal += c / (x[j] + 0.1) / size;
+            d_goal[j] = -c / ((x[j] + 0.1) * (x[j] + 0.1)) / size;
+            mean += x[j] / size;
+            square += b * x[j] * x[j] / size;
+            d_limits[j] = 1.0 / size;
+            d_limits[n + j] = 2.0 * b * x[j] / size;
+        }
+        (goal, d_goal, vec![mean, square], d_limits)
+    }
+
+    /// Three updates in a row (so that the third uses the asymptotes of the two before it) on 200 000
+    /// variables give the same designs, bit for bit, on 1, 2, 5 and 12 threads.
+    #[test]
+    fn the_designs_are_the_same_on_every_thread_count() {
+        let n = 200_000;
+        let spread = |j: usize, step: f64| (j as f64 * step) % 1.0;
+        let start: Vec<f64> = (0..n).map(|j| 0.2 + 0.6 * spread(j, 0.618_034)).collect();
+        assert!(made_up_problem(&start).2[0] > 0.05);
+        let designs = |threads: usize| {
+            let mut mma = Mma::with_threads(vec![0.0; n], vec![1.0; n], 2, threads).unwrap();
+            assert_eq!(mma.threads(), threads);
+            let mut x = start.clone();
+            let mut designs = vec![];
+            for _ in 0..3 {
+                let (goal, d_goal, limits, d_limits) = made_up_problem(&x);
+                x = mma.update(&x, goal, &d_goal, &limits, &d_limits).unwrap();
+                designs.push(x.clone());
+            }
+            designs
+        };
+        let one = designs(1);
+        for threads in [2, 5, 12] {
+            let other = designs(threads);
+            for (a, b) in one.iter().zip(&other) {
+                assert!(
+                    a.iter().zip(b).all(|(a, b)| a.to_bits() == b.to_bits()),
+                    "{threads} threads"
+                );
+            }
+        }
+        assert!(Mma::with_threads(vec![0.0], vec![1.0], 0, 0).is_err());
     }
 
     #[test]

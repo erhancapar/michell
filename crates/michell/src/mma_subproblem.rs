@@ -87,8 +87,17 @@
 //! terms' derivatives, p_ij / (u_j - x_j)^2 + q_ij / (x_j - l_j)^2, at the starting point (positive,
 //! since every p_ij and q_ij is), and omega_i = min(1, size of g_0 / size of g_i): a limit no steeper
 //! than the goal is left as it is. The solution is returned in the caller's units.
+//!
+//! Threads. Every loop over the n variables runs on the threads of `threads.rs`: the entries of a vector
+//! over the variables are each computed by one thread with the same arithmetic on any thread count, and
+//! every sum over the variables (the values g_i(x), the norm of the residuals, the sums that build the
+//! (m + 1) system) and every largest or smallest value (the largest residual, the longest step, the size
+//! of a function) is taken within each block of `BLOCK_LENGTH` variables in index order and then over the
+//! blocks in block order, also on one thread. The result is therefore the same on every thread count. The
+//! (m + 1) system itself is solved on the calling thread.
 
 use crate::error::{EngineError, ErrorCode};
+use crate::threads::Threads;
 
 /// The relaxation epsilon starts here, ...
 pub const EPSILON_START: f64 = 1.0;
@@ -159,26 +168,43 @@ struct Residual {
 }
 
 impl Residual {
-    fn all(&self) -> impl Iterator<Item = f64> + '_ {
-        self.x
+    /// The residuals of the unknowns that are not indexed by the variables (y, z, lambda, mu, zeta, s).
+    fn per_limit(&self) -> impl Iterator<Item = f64> + '_ {
+        self.y
             .iter()
-            .chain(&self.y)
             .chain(std::iter::once(&self.z))
             .chain(&self.lambda)
-            .chain(&self.xi)
-            .chain(&self.eta)
             .chain(&self.mu)
             .chain(std::iter::once(&self.zeta))
             .chain(&self.s)
             .copied()
     }
 
-    fn norm(&self) -> f64 {
-        self.all().map(|v| v * v).sum::<f64>().sqrt()
+    /// The Euclidean norm of all residuals: the terms of x, xi and eta summed by the block rule of
+    /// `threads.rs`, then the others in order.
+    fn norm(&self, threads: &Threads) -> f64 {
+        let mut sum = threads.sum(self.x.len(), |j| {
+            self.x[j] * self.x[j] + self.xi[j] * self.xi[j] + self.eta[j] * self.eta[j]
+        });
+        for v in self.per_limit() {
+            sum += v * v;
+        }
+        sum.sqrt()
     }
 
-    fn largest(&self) -> f64 {
-        self.all().fold(0.0, |m, v| m.max(v.abs()))
+    /// The largest magnitude of all residuals.
+    fn largest(&self, threads: &Threads) -> f64 {
+        let mut largest = 0.0_f64;
+        for block in threads.blocks(self.x.len(), |block| {
+            block.fold(0.0_f64, |m, j| {
+                m.max(self.x[j].abs())
+                    .max(self.xi[j].abs())
+                    .max(self.eta[j].abs())
+            })
+        }) {
+            largest = largest.max(block);
+        }
+        self.per_limit().fold(largest, |m, v| m.max(v.abs()))
     }
 }
 
@@ -191,67 +217,76 @@ impl Subproblem<'_> {
         self.r.len()
     }
 
-    /// g_i(x) for every limit.
-    fn limit_values(&self, x: &[f64]) -> Vec<f64> {
+    /// g_i(x) for every limit: the sums over the variables in one pass, by the block rule.
+    fn limit_values(&self, x: &[f64], threads: &Threads) -> Vec<f64> {
         let n = self.n();
-        (0..self.m())
-            .map(|i| {
-                let mut value = self.r[i];
-                for j in 0..n {
-                    value += self.p[i * n + j] / (self.upper[j] - x[j])
+        let m = self.m();
+        let blocks = threads.blocks(n, |block| {
+            let mut sums = vec![0.0; m];
+            for j in block {
+                for (i, sum) in sums.iter_mut().enumerate() {
+                    *sum += self.p[i * n + j] / (self.upper[j] - x[j])
                         + self.q[i * n + j] / (x[j] - self.lower[j]);
                 }
-                value
+            }
+            sums
+        });
+        (0..m)
+            .map(|i| {
+                let mut sum = 0.0;
+                for block in &blocks {
+                    sum += block[i];
+                }
+                self.r[i] + sum
             })
             .collect()
     }
 
     /// G_ij = d g_i / d x_j, row by row.
-    fn limit_gradients(&self, x: &[f64]) -> Vec<f64> {
+    fn limit_gradients(&self, x: &[f64], threads: &Threads) -> Vec<f64> {
         let n = self.n();
-        let mut gradients = vec![0.0; self.m() * n];
+        let mut gradients = Vec::with_capacity(self.m() * n);
         for i in 0..self.m() {
-            for j in 0..n {
+            let (p, q) = (&self.p[i * n..(i + 1) * n], &self.q[i * n..(i + 1) * n]);
+            gradients.extend(threads.vector(n, |j| {
                 let ux = self.upper[j] - x[j];
                 let xl = x[j] - self.lower[j];
-                gradients[i * n + j] =
-                    self.p[i * n + j] / (ux * ux) - self.q[i * n + j] / (xl * xl);
-            }
+                p[j] / (ux * ux) - q[j] / (xl * xl)
+            }));
         }
         gradients
     }
 
     /// The combined terms p0_j + sum_i lambda_i p_ij and q0_j + sum_i lambda_i q_ij of psi.
-    fn combined_terms(&self, lambda: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    fn combined_terms(&self, lambda: &[f64], threads: &Threads) -> (Vec<f64>, Vec<f64>) {
         let n = self.n();
-        let mut p = self.p0.to_vec();
-        let mut q = self.q0.to_vec();
-        for (i, l) in lambda.iter().enumerate() {
-            for j in 0..n {
-                p[j] += l * self.p[i * n + j];
-                q[j] += l * self.q[i * n + j];
-            }
-        }
-        (p, q)
+        let combined = |own: &[f64], terms: &[f64]| {
+            threads.vector(n, |j| {
+                let mut value = own[j];
+                for (i, l) in lambda.iter().enumerate() {
+                    value += l * terms[i * n + j];
+                }
+                value
+            })
+        };
+        (combined(self.p0, self.p), combined(self.q0, self.q))
     }
 
-    fn residual(&self, point: &Point, epsilon: f64) -> Residual {
+    fn residual(&self, point: &Point, epsilon: f64, threads: &Threads) -> Residual {
         let n = self.n();
-        let (p, q) = self.combined_terms(&point.lambda);
+        let (p, q) = self.combined_terms(&point.lambda, threads);
         let x = &point.x;
-        let r_x = (0..n)
-            .map(|j| {
-                let ux = self.upper[j] - x[j];
-                let xl = x[j] - self.lower[j];
-                p[j] / (ux * ux) - q[j] / (xl * xl) - point.xi[j] + point.eta[j]
-            })
-            .collect();
+        let r_x = threads.vector(n, |j| {
+            let ux = self.upper[j] - x[j];
+            let xl = x[j] - self.lower[j];
+            p[j] / (ux * ux) - q[j] / (xl * xl) - point.xi[j] + point.eta[j]
+        });
         let r_y = (0..self.m())
             .map(|i| self.c[i] + self.d[i] * point.y[i] - point.lambda[i] - point.mu[i])
             .collect();
         let a_dot_lambda: f64 = self.a.iter().zip(&point.lambda).map(|(a, l)| a * l).sum();
         let r_z = self.a0 - point.zeta - a_dot_lambda;
-        let g = self.limit_values(x);
+        let g = self.limit_values(x, threads);
         let r_lambda = (0..self.m())
             .map(|i| g[i] - self.a[i] * point.z - point.y[i] + point.s[i])
             .collect();
@@ -260,12 +295,8 @@ impl Subproblem<'_> {
             y: r_y,
             z: r_z,
             lambda: r_lambda,
-            xi: (0..n)
-                .map(|j| point.xi[j] * (x[j] - self.alpha[j]) - epsilon)
-                .collect(),
-            eta: (0..n)
-                .map(|j| point.eta[j] * (self.beta[j] - x[j]) - epsilon)
-                .collect(),
+            xi: threads.vector(n, |j| point.xi[j] * (x[j] - self.alpha[j]) - epsilon),
+            eta: threads.vector(n, |j| point.eta[j] * (self.beta[j] - x[j]) - epsilon),
             mu: (0..self.m())
                 .map(|i| point.mu[i] * point.y[i] - epsilon)
                 .collect(),
@@ -277,19 +308,13 @@ impl Subproblem<'_> {
     }
 
     /// The starting point: x in the middle of [alpha, beta], every other unknown 1 or a little more.
-    fn start(&self) -> Point {
+    fn start(&self, threads: &Threads) -> Point {
         let n = self.n();
         let m = self.m();
-        let x: Vec<f64> = (0..n)
-            .map(|j| 0.5 * (self.alpha[j] + self.beta[j]))
-            .collect();
+        let x = threads.vector(n, |j| 0.5 * (self.alpha[j] + self.beta[j]));
         Point {
-            xi: (0..n)
-                .map(|j| (1.0 / (x[j] - self.alpha[j])).max(1.0))
-                .collect(),
-            eta: (0..n)
-                .map(|j| (1.0 / (self.beta[j] - x[j])).max(1.0))
-                .collect(),
+            xi: threads.vector(n, |j| (1.0 / (x[j] - self.alpha[j])).max(1.0)),
+            eta: threads.vector(n, |j| (1.0 / (self.beta[j] - x[j])).max(1.0)),
             x,
             y: vec![1.0; m],
             z: 1.0,
@@ -301,25 +326,28 @@ impl Subproblem<'_> {
     }
 
     /// The Newton step at `point` (see the file header for the derivation).
-    fn newton_step(&self, point: &Point, res: &Residual) -> Result<Point, EngineError> {
+    fn newton_step(
+        &self,
+        point: &Point,
+        res: &Residual,
+        threads: &Threads,
+    ) -> Result<Point, EngineError> {
         let n = self.n();
         let m = self.m();
         let x = &point.x;
-        let (p, q) = self.combined_terms(&point.lambda);
-        let gradients = self.limit_gradients(x);
+        let (p, q) = self.combined_terms(&point.lambda, threads);
+        let gradients = self.limit_gradients(x, threads);
 
         // D_x and b_x, per variable.
-        let mut d_x_diag = vec![0.0; n];
-        let mut b_x = vec![0.0; n];
-        for j in 0..n {
+        let d_x_diag = threads.vector(n, |j| {
             let ux = self.upper[j] - x[j];
             let xl = x[j] - self.lower[j];
-            let to_alpha = x[j] - self.alpha[j];
-            let to_beta = self.beta[j] - x[j];
             let psi_second = 2.0 * p[j] / (ux * ux * ux) + 2.0 * q[j] / (xl * xl * xl);
-            d_x_diag[j] = psi_second + point.xi[j] / to_alpha + point.eta[j] / to_beta;
-            b_x[j] = -res.x[j] - res.xi[j] / to_alpha + res.eta[j] / to_beta;
-        }
+            psi_second + point.xi[j] / (x[j] - self.alpha[j]) + point.eta[j] / (self.beta[j] - x[j])
+        });
+        let b_x = threads.vector(n, |j| {
+            -res.x[j] - res.xi[j] / (x[j] - self.alpha[j]) + res.eta[j] / (self.beta[j] - x[j])
+        });
         // D_y, b_y, b_lam per limit, and b_z.
         let d_y_diag: Vec<f64> = (0..m)
             .map(|i| self.d[i] + point.mu[i] / point.y[i])
@@ -330,26 +358,41 @@ impl Subproblem<'_> {
             .collect();
         let b_z = -res.z - res.zeta / point.z;
 
+        // The sums over the variables in G D_x^-1 G^T (entry (i, k) for k >= i: the matrix is symmetric)
+        // and in G D_x^-1 b_x, all in one pass by the block rule.
+        let pairs: Vec<(usize, usize)> = (0..m).flat_map(|i| (i..m).map(move |k| (i, k))).collect();
+        let blocks = threads.blocks(n, |block| {
+            let mut sums = vec![0.0; pairs.len() + m];
+            for j in block {
+                for (sum, &(i, k)) in sums.iter_mut().zip(&pairs) {
+                    *sum += gradients[i * n + j] * gradients[k * n + j] / d_x_diag[j];
+                }
+                for i in 0..m {
+                    sums[pairs.len() + i] += gradients[i * n + j] * b_x[j] / d_x_diag[j];
+                }
+            }
+            sums
+        });
+        let mut sums = vec![0.0; pairs.len() + m];
+        for block in &blocks {
+            for (sum, value) in sums.iter_mut().zip(block) {
+                *sum += value;
+            }
+        }
+
         // The (m + 1) system in d_lam and d_z, row by row.
         let size = m + 1;
         let mut matrix = vec![0.0; size * size];
         let mut rhs = vec![0.0; size];
+        for (&(i, k), sum) in pairs.iter().zip(&sums) {
+            matrix[i * size + k] = *sum;
+            matrix[k * size + i] = *sum;
+        }
         for i in 0..m {
-            for k in 0..m {
-                let mut sum = 0.0;
-                for j in 0..n {
-                    sum += gradients[i * n + j] * gradients[k * n + j] / d_x_diag[j];
-                }
-                matrix[i * size + k] = sum;
-            }
             matrix[i * size + i] += 1.0 / d_y_diag[i] + point.s[i] / point.lambda[i];
             matrix[i * size + m] = self.a[i];
             matrix[m * size + i] = -self.a[i];
-            let mut g_b_x = 0.0;
-            for j in 0..n {
-                g_b_x += gradients[i * n + j] * b_x[j] / d_x_diag[j];
-            }
-            rhs[i] = g_b_x - b_y[i] / d_y_diag[i] - b_lambda[i];
+            rhs[i] = sums[pairs.len() + i] - b_y[i] / d_y_diag[i] - b_lambda[i];
         }
         matrix[m * size + m] = point.zeta / point.z;
         rhs[m] = b_z;
@@ -358,22 +401,20 @@ impl Subproblem<'_> {
         let d_z = solution[m];
 
         // Back substitution, in the order of the file header.
-        let d_x: Vec<f64> = (0..n)
-            .map(|j| {
-                let g_t_d_lambda: f64 = (0..m).map(|i| gradients[i * n + j] * d_lambda[i]).sum();
-                (b_x[j] - g_t_d_lambda) / d_x_diag[j]
-            })
-            .collect();
+        let d_x = threads.vector(n, |j| {
+            let g_t_d_lambda: f64 = (0..m).map(|i| gradients[i * n + j] * d_lambda[i]).sum();
+            (b_x[j] - g_t_d_lambda) / d_x_diag[j]
+        });
         let d_y: Vec<f64> = (0..m)
             .map(|i| (b_y[i] + d_lambda[i]) / d_y_diag[i])
             .collect();
         Ok(Point {
-            xi: (0..n)
-                .map(|j| (-res.xi[j] - point.xi[j] * d_x[j]) / (x[j] - self.alpha[j]))
-                .collect(),
-            eta: (0..n)
-                .map(|j| (-res.eta[j] + point.eta[j] * d_x[j]) / (self.beta[j] - x[j]))
-                .collect(),
+            xi: threads.vector(n, |j| {
+                (-res.xi[j] - point.xi[j] * d_x[j]) / (x[j] - self.alpha[j])
+            }),
+            eta: threads.vector(n, |j| {
+                (-res.eta[j] + point.eta[j] * d_x[j]) / (self.beta[j] - x[j])
+            }),
             mu: (0..m)
                 .map(|i| (-res.mu[i] - point.mu[i] * d_y[i]) / point.y[i])
                 .collect(),
@@ -390,41 +431,47 @@ impl Subproblem<'_> {
 
     /// The longest step t <= 1 along `step` that keeps every positive variable above 1 % of its value
     /// and x strictly between alpha and beta.
-    fn longest_step(&self, point: &Point, step: &Point) -> f64 {
-        let mut t: f64 = 1.0;
-        let mut limit = |value: f64, change: f64| {
+    fn longest_step(&self, point: &Point, step: &Point, threads: &Threads) -> f64 {
+        let limit = |t: f64, value: f64, change: f64| {
             if change < 0.0 {
-                t = t.min(-FRACTION_TO_BOUNDARY * value / change);
+                t.min(-FRACTION_TO_BOUNDARY * value / change)
+            } else {
+                t
             }
         };
-        for j in 0..self.n() {
-            limit(point.x[j] - self.alpha[j], step.x[j]);
-            limit(self.beta[j] - point.x[j], -step.x[j]);
-            limit(point.xi[j], step.xi[j]);
-            limit(point.eta[j], step.eta[j]);
+        let mut t: f64 = 1.0;
+        for block in threads.blocks(self.n(), |block| {
+            block.fold(1.0_f64, |t, j| {
+                let t = limit(t, point.x[j] - self.alpha[j], step.x[j]);
+                let t = limit(t, self.beta[j] - point.x[j], -step.x[j]);
+                let t = limit(t, point.xi[j], step.xi[j]);
+                limit(t, point.eta[j], step.eta[j])
+            })
+        }) {
+            t = t.min(block);
         }
         for i in 0..self.m() {
-            limit(point.y[i], step.y[i]);
-            limit(point.lambda[i], step.lambda[i]);
-            limit(point.mu[i], step.mu[i]);
-            limit(point.s[i], step.s[i]);
+            t = limit(t, point.y[i], step.y[i]);
+            t = limit(t, point.lambda[i], step.lambda[i]);
+            t = limit(t, point.mu[i], step.mu[i]);
+            t = limit(t, point.s[i], step.s[i]);
         }
-        limit(point.z, step.z);
-        limit(point.zeta, step.zeta);
-        t
+        t = limit(t, point.z, step.z);
+        limit(t, point.zeta, step.zeta)
     }
 }
 
 /// point + t step.
-fn moved(point: &Point, step: &Point, t: f64) -> Point {
+fn moved(point: &Point, step: &Point, t: f64, threads: &Threads) -> Point {
     let add = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(a, b)| a + t * b).collect();
+    let add_on_threads = |a: &[f64], b: &[f64]| threads.vector(a.len(), |j| a[j] + t * b[j]);
     Point {
-        x: add(&point.x, &step.x),
+        x: add_on_threads(&point.x, &step.x),
         y: add(&point.y, &step.y),
         z: point.z + t * step.z,
         lambda: add(&point.lambda, &step.lambda),
-        xi: add(&point.xi, &step.xi),
-        eta: add(&point.eta, &step.eta),
+        xi: add_on_threads(&point.xi, &step.xi),
+        eta: add_on_threads(&point.eta, &step.eta),
         mu: add(&point.mu, &step.mu),
         zeta: point.zeta + t * step.zeta,
         s: add(&point.s, &step.s),
@@ -432,15 +479,20 @@ fn moved(point: &Point, step: &Point, t: f64) -> Point {
 }
 
 /// The factor omega_i for each limit (see "The units of the limits" in the file header).
-fn limit_units(sub: &Subproblem<'_>) -> Vec<f64> {
+fn limit_units(sub: &Subproblem<'_>, threads: &Threads) -> Vec<f64> {
     let n = sub.n();
-    let start = sub.start();
+    let start = sub.start(threads);
     let size = |p: &[f64], q: &[f64]| {
-        (0..n).fold(0.0_f64, |largest, j| {
-            let ux = sub.upper[j] - start.x[j];
-            let xl = start.x[j] - sub.lower[j];
-            largest.max(p[j] / (ux * ux) + q[j] / (xl * xl))
-        })
+        threads
+            .blocks(n, |block| {
+                block.fold(0.0_f64, |largest, j| {
+                    let ux = sub.upper[j] - start.x[j];
+                    let xl = start.x[j] - sub.lower[j];
+                    largest.max(p[j] / (ux * ux) + q[j] / (xl * xl))
+                })
+            })
+            .into_iter()
+            .fold(0.0_f64, f64::max)
     };
     let goal = size(sub.p0, sub.q0);
     (0..sub.m())
@@ -451,20 +503,27 @@ fn limit_units(sub: &Subproblem<'_>) -> Vec<f64> {
         .collect()
 }
 
-/// Solves the subproblem. Returns `solver_not_converged` if one value of epsilon needs more than
-/// `NEWTON_STEPS_PER_EPSILON` Newton steps.
+/// Solves the subproblem on one thread. Returns `solver_not_converged` if one value of epsilon needs more
+/// than `NEWTON_STEPS_PER_EPSILON` Newton steps.
 pub fn solve(sub: &Subproblem<'_>) -> Result<Solution, EngineError> {
-    let omega = limit_units(sub);
+    solve_on(sub, &Threads::new(1)?)
+}
+
+/// Solves the subproblem on `threads`, with the same result on every thread count (see "Threads" in the
+/// file header). Returns `solver_not_converged` if one value of epsilon needs more than
+/// `NEWTON_STEPS_PER_EPSILON` Newton steps.
+pub fn solve_on(sub: &Subproblem<'_>, threads: &Threads) -> Result<Solution, EngineError> {
+    let omega = limit_units(sub, threads);
     if omega.iter().all(|&w| w == 1.0) {
-        return solve_in_given_units(sub);
+        return solve_in_given_units(sub, threads);
     }
     let n = sub.n();
-    let scaled = |values: &[f64]| -> Vec<f64> {
-        values
-            .chunks(n)
-            .zip(&omega)
-            .flat_map(|(row, w)| row.iter().map(move |v| v * w))
-            .collect()
+    let scaled = |values: &[f64]| {
+        let mut scaled = Vec::with_capacity(values.len());
+        for (row, w) in values.chunks(n).zip(&omega) {
+            scaled.extend(threads.vector(n, |j| row[j] * w));
+        }
+        scaled
     };
     let p = scaled(sub.p);
     let q = scaled(sub.q);
@@ -472,15 +531,18 @@ pub fn solve(sub: &Subproblem<'_>) -> Result<Solution, EngineError> {
     let a: Vec<f64> = sub.a.iter().zip(&omega).map(|(v, w)| v * w).collect();
     let c: Vec<f64> = sub.c.iter().zip(&omega).map(|(v, w)| v / w).collect();
     let d: Vec<f64> = sub.d.iter().zip(&omega).map(|(v, w)| v / (w * w)).collect();
-    let solution = solve_in_given_units(&Subproblem {
-        p: &p,
-        q: &q,
-        r: &r,
-        a: &a,
-        c: &c,
-        d: &d,
-        ..*sub
-    })?;
+    let solution = solve_in_given_units(
+        &Subproblem {
+            p: &p,
+            q: &q,
+            r: &r,
+            a: &a,
+            c: &c,
+            d: &d,
+            ..*sub
+        },
+        threads,
+    )?;
     Ok(Solution {
         y: solution.y.iter().zip(&omega).map(|(v, w)| v / w).collect(),
         lambda: solution
@@ -494,34 +556,34 @@ pub fn solve(sub: &Subproblem<'_>) -> Result<Solution, EngineError> {
 }
 
 /// The primal-dual method of the file header on the subproblem as given.
-fn solve_in_given_units(sub: &Subproblem<'_>) -> Result<Solution, EngineError> {
-    let mut point = sub.start();
+fn solve_in_given_units(sub: &Subproblem<'_>, threads: &Threads) -> Result<Solution, EngineError> {
+    let mut point = sub.start(threads);
     let mut epsilon = EPSILON_START;
     loop {
         let mut steps = 0;
-        let mut res = sub.residual(&point, epsilon);
-        while res.largest() > 0.9 * epsilon {
+        let mut res = sub.residual(&point, epsilon, threads);
+        while res.largest(threads) > 0.9 * epsilon {
             if steps == NEWTON_STEPS_PER_EPSILON {
                 return Err(EngineError::new(
                     ErrorCode::SolverNotConverged,
                     "the MMA subproblem solver did not reach its tolerance",
                 )
                 .with_number("epsilon", epsilon)
-                .with_number("residual", res.largest())
+                .with_number("residual", res.largest(threads))
                 .with_integer("newton_steps", steps));
             }
-            let step = sub.newton_step(&point, &res)?;
-            let mut t = sub.longest_step(&point, &step);
-            let norm_before = res.norm();
-            let mut candidate = moved(&point, &step, t);
-            let mut candidate_res = sub.residual(&candidate, epsilon);
+            let step = sub.newton_step(&point, &res, threads)?;
+            let mut t = sub.longest_step(&point, &step, threads);
+            let norm_before = res.norm(threads);
+            let mut candidate = moved(&point, &step, t, threads);
+            let mut candidate_res = sub.residual(&candidate, epsilon, threads);
             for _ in 0..STEP_HALVINGS {
-                if candidate_res.norm() < norm_before {
+                if candidate_res.norm(threads) < norm_before {
                     break;
                 }
                 t *= 0.5;
-                candidate = moved(&point, &step, t);
-                candidate_res = sub.residual(&candidate, epsilon);
+                candidate = moved(&point, &step, t, threads);
+                candidate_res = sub.residual(&candidate, epsilon, threads);
             }
             point = candidate;
             res = candidate_res;
@@ -668,7 +730,7 @@ mod tests {
             c: &[1000.0],
             d: &[1.0],
         };
-        assert!(limit_units(&sub)[0] < 1e-3);
+        assert!(limit_units(&sub, &Threads::new(1).unwrap())[0] < 1e-3);
         let solution = solve(&sub).unwrap();
         assert!((solution.x[0] - 1.5).abs() < 1e-8);
         assert!((solution.lambda[0] - 0.04e-4).abs() < 1e-12);

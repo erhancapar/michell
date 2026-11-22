@@ -1,6 +1,6 @@
-//! The threads of the 3D analysis: one pool of worker threads per thread count, and the two operations that
-//! share work out over a pool, a sum and a write, built so that the result does not depend on how many
-//! threads there are.
+//! The threads of the 3D analysis and of the MMA update: one pool of worker threads per thread count, and the
+//! operations that share work out over a pool, sums (and the per-block results they are built from) and
+//! writes, built so that the result does not depend on how many threads there are.
 //!
 //! The pools come from the `rayon` crate. A pool is started the first time a thread count is asked for and
 //! then kept for the life of the process, so every object that asks for 4 threads shares the same 4 threads.
@@ -16,6 +16,7 @@
 //!   runs over blocks of `BLOCK_LENGTH` entries: each block is summed in index order, and the block sums are
 //!   added in block order. Which thread sums which block, and when it finishes, cannot change the result.
 
+use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
 use rayon::ThreadPool;
@@ -151,6 +152,65 @@ impl Threads {
         self.for_each_piece(out, 1, |i, value| work(i, &mut value[0]));
     }
 
+    /// Cuts the indices `0..length` into the blocks of `BLOCK_LENGTH` that every sum runs over and returns
+    /// `work(block)` for each, in block order, whichever thread computed it. A caller that sums or takes
+    /// the largest of something over the indices does so within each block in index order and then
+    /// combines the results in the order returned, so the outcome does not depend on the thread count.
+    pub fn blocks<T, F>(&self, length: usize, work: F) -> Vec<T>
+    where
+        T: Send,
+        F: Fn(Range<usize>) -> T + Send + Sync,
+    {
+        let block = |index: usize| {
+            let start = index * BLOCK_LENGTH;
+            work(start..(start + BLOCK_LENGTH).min(length))
+        };
+        let count = length.div_ceil(BLOCK_LENGTH);
+        match self.pool_for(length) {
+            None => (0..count).map(block).collect(),
+            // `collect` keeps the blocks in their order, whichever thread computed them.
+            Some(pool) => pool.install(|| (0..count).into_par_iter().map(block).collect()),
+        }
+    }
+
+    /// The sum of `term(i)` over `0..length`, by the block rule of `inner`: each block in index order, then
+    /// the block sums in block order.
+    pub fn sum<F>(&self, length: usize, term: F) -> f64
+    where
+        F: Fn(usize) -> f64 + Send + Sync,
+    {
+        let mut sum = 0.0;
+        for block_sum in self.blocks(length, |block| {
+            let mut block_sum = 0.0;
+            for i in block {
+                block_sum += term(i);
+            }
+            block_sum
+        }) {
+            sum += block_sum;
+        }
+        sum
+    }
+
+    /// A new vector of `length` entries, entry i equal to `value(i)`, each written by one thread.
+    pub fn vector<F>(&self, length: usize, value: F) -> Vec<f64>
+    where
+        F: Fn(usize) -> f64 + Send + Sync,
+    {
+        // Collected straight into the new vector, without first filling it with zeros: on one thread that
+        // would be a pass over the memory of its own.
+        match self.pool_for(length) {
+            None => (0..length).map(value).collect(),
+            Some(pool) => pool.install(|| {
+                (0..length)
+                    .into_par_iter()
+                    .with_min_len(BLOCK_LENGTH)
+                    .map(value)
+                    .collect()
+            }),
+        }
+    }
+
     /// The pool to share out work on `length` entries, or `None` when the calling thread does it alone: with
     /// one thread, or when the work fits in one block and sharing it out would cost more than it saves.
     fn pool_for(&self, length: usize) -> Option<&ThreadPool> {
@@ -249,6 +309,30 @@ mod tests {
             blocked_sum(short, short, BLOCK_LENGTH).to_bits()
         );
         assert_eq!(Threads::new(2).unwrap().inner(&[], &[]), 0.0);
+    }
+
+    #[test]
+    fn blocks_come_back_in_order_and_the_sum_follows_the_block_rule() {
+        let n = 13 * BLOCK_LENGTH + 357;
+        let a = order_sensitive(n);
+        let ones = vec![1.0; n];
+        let expected = blocked_sum(&a, &ones, BLOCK_LENGTH);
+        for count in [1, 2, 5, 12] {
+            let threads = Threads::new(count).unwrap();
+            let ranges = threads.blocks(n, |block| (block.start, block.end));
+            assert_eq!(ranges.len(), 14);
+            assert!(ranges.iter().enumerate().all(|(b, &(start, end))| {
+                start == b * BLOCK_LENGTH && end == (start + BLOCK_LENGTH).min(n)
+            }));
+            assert_eq!(
+                threads.sum(n, |i| a[i]).to_bits(),
+                expected.to_bits(),
+                "{count}"
+            );
+            let v = threads.vector(n, |i| 2.0 * a[i]);
+            assert!(v.iter().zip(&a).all(|(v, a)| *v == 2.0 * a));
+            assert!(threads.blocks(0, |block| block.len()).is_empty());
+        }
     }
 
     #[test]

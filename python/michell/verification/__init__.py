@@ -8,7 +8,7 @@ all and writes the table.
 Rows 6, 8 and 10 compare with the output of the 88-line code kept in the repository under
 ``tests/reference``; they take that folder as an argument and report "not run" when it is absent. Row 9
 solves its problems a second time with SciPy and row 14 assembles the 3D stiffness matrix with SciPy; both
-report "not run" when SciPy is not installed. Row 15 runs the 3D analysis on several thread counts. Row 16
+report "not run" when SciPy is not installed. Row 15 runs the 3D analysis and the MMA update on several thread counts. Row 16
 compares the 3D solver with a sparse direct solution computed by SciPy (also "not run" without it), row 17
 counts its steps, and row 18 compares a 3D cantilever with beam theory. Row 19 checks the gradients of the 3D
 loop through the Helmholtz filter against finite differences, and row 20 the filter itself against its
@@ -42,6 +42,7 @@ from michell.verification.analysis3d_rows import (
     row_12_patch_test,
     row_13_pure_shear,
     row_14_product,
+    row_15_mma_thread_count,
     row_15_thread_count,
 )
 from michell.verification.analysis_rows import (
@@ -95,6 +96,7 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_13_pure_shear()
     rows += row_14_product()
     rows += row_15_thread_count()
+    rows += row_15_mma_thread_count()
     for case in ROW_16_CASES:
         rows += row_16_direct_solve(case)
     rows += row_17_uniform()
@@ -144,6 +146,7 @@ __all__ = [
     "row_12_patch_test",
     "row_13_pure_shear",
     "row_14_product",
+    "row_15_mma_thread_count",
     "row_15_thread_count",
     "row_16_direct_solve",
     "row_17_uniform",

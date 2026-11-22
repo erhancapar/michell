@@ -5,8 +5,10 @@ use pyo3::prelude::*;
 
 use crate::arrays::{copy_matrix, copy_vector};
 use crate::errors::{invalid_input, run_engine};
+use crate::grid::non_negative;
 
-/// The MMA update for variables between `x_min` and `x_max` and `n_limits` limits written f_i(x) <= 0.
+/// The MMA update for variables between `x_min` and `x_max` and `n_limits` limits written f_i(x) <= 0, on
+/// `threads` threads; the designs do not depend on the thread count.
 ///
 /// Unlike the other engine objects this one changes with every update (it remembers the two previous
 /// designs and the asymptotes), so it is not frozen. Calling `update` from a second Python thread while
@@ -19,15 +21,20 @@ pub struct Mma {
 #[pymethods]
 impl Mma {
     #[new]
+    #[pyo3(signature = (x_min, x_max, n_limits, threads = 1))]
     fn new(
         py: Python<'_>,
         x_min: &Bound<'_, PyAny>,
         x_max: &Bound<'_, PyAny>,
         n_limits: usize,
+        threads: i64,
     ) -> PyResult<Mma> {
+        let threads = non_negative(py, threads, "threads")?;
         let x_min = copy_vector(x_min, "x_min")?;
         let x_max = copy_vector(x_max, "x_max")?;
-        let inner = run_engine(py, || michell::Mma::new(x_min, x_max, n_limits))?;
+        let inner = run_engine(py, || {
+            michell::Mma::with_threads(x_min, x_max, n_limits, threads)
+        })?;
         Ok(Mma { inner })
     }
 
@@ -39,6 +46,12 @@ impl Mma {
     #[getter]
     fn n_limits(&self) -> usize {
         self.inner.n_limits()
+    }
+
+    /// The number of threads every update runs on.
+    #[getter]
+    fn threads(&self) -> usize {
+        self.inner.threads()
     }
 
     /// How many updates have been made.

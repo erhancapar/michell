@@ -92,7 +92,8 @@ beyond each face and in the inactive elements; they are checked when the filter 
 gives the numbers of the filter without them, bit for bit), and so does a 3D `Problem`, which hands it to its analysis; the
 thread count is written into the result of an optimisation (`Result.threads`). The 2D analysis, the density
 filter on a 2D grid (which refuses a thread count other than 1), the projection, the member-size limit and
-the optimiser updates run on one thread.
+the OC update run on one thread. The MMA update takes its thread count the same way, `Mma(x_min, x_max,
+n_limits, threads=1)`; `MovingAsymptotes` hands it the problem's.
 
 ## Same input, same output
 

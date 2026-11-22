@@ -8,8 +8,10 @@ TOML file, with the geometry beside it as STL files. The format is described in
   supports and loads placed on it (``michell.attach.set_up``), with the mass bound and the member size, as a
   ``Prepared``: everything ``michell check`` shows. It solves nothing.
 - ``run(path, *, out=None, threads=None, callback=None)``: ``prepare``, then ``SetUp.stiff_part`` (every run
-  is the two-step procedure of ``michell.recipes.stiff_part``), then the outcome written to the output
-  folder (``result.json`` and ``result.npz``, and ``result.vtk`` when asked), as a ``RunOutcome``.
+  is the two-step procedure of ``michell.recipes.stiff_part``), then, when ``[output] mesh`` asks for it,
+  the part's mesh (``michell.part_mesh.finish``), and the outcome written to the output folder
+  (``result.json`` and ``result.npz``, ``result.vtk``, ``part.stl`` and ``part.3mf`` when asked), as a
+  ``RunOutcome``.
 
 Every refusal of the file is a ``michell.errors.ProblemFileError``: one stable code per kind of fault, the
 key's place in the file (``path``) and a sentence for people. A refusal of the geometry or of the set-up by
@@ -49,7 +51,8 @@ from michell.errors import (
     _Refused,
 )
 from michell.export import _plain, write_result, write_vtk
-from michell.mesh import Mesh, read_stl
+from michell.mesh import Mesh, read_stl, write_3mf, write_stl
+from michell.part_mesh import FinishedPart, MeshRefused, StlRounding, finish
 from michell.problem import Material
 from michell.recipes import RecipePass, StiffPart
 from michell.regions import VoxelModel, voxel_model
@@ -66,6 +69,10 @@ DEFAULT_OUTPUT = "out"
 FIELDS = ("vtk",)
 RESULT_NAME = "result"
 
+# The mesh files [output] mesh may ask for, and the name of the files run writes.
+MESH_FORMATS = ("stl", "3mf")
+MESH_NAME = "part"
+
 GOALS = {"compliance": ("min",)}
 
 # What the format reserves for later, with the sentence a file that uses it is refused with.
@@ -77,9 +84,9 @@ _PLANNED_LOAD = {
     name: f"the load kind {name} is reserved and not available yet; for now a load is a force, force_n (N)"
     for name in ("moment_n_mm", "pressure_mpa", "remote_force_n")
 }
-_PLANNED_OUTPUT = {
-    "mesh": "mesh output ([output] mesh) is planned and not available yet; for now a run writes result.json, "
-    'result.npz and, with fields = ["vtk"], result.vtk',
+# The mesh formats the format reserves for later.
+_PLANNED_MESH = {
+    "step": 'a STEP file of the mesh is planned and not available yet; [output] mesh holds "stl" and "3mf"',
 }
 _PLANNED_RULES = {
     "symmetry": "the symmetry rule is planned and not available yet; for now the whole part is optimised without it",
@@ -204,7 +211,8 @@ class ProblemFile:
       file), ``goal`` (module and sense), ``mass`` (``MassLimit``) and ``member_size_mm`` (None when the
       file has no ``min_member`` rule).
     - ``threads``; ``filter_faces``, the density filter's faces the file sets (``"x-"`` to ``"z+"``, each
-      ``"closed"`` or ``"empty"``); ``output``, the output folder (absolute); ``fields``.
+      ``"closed"`` or ``"empty"``); ``output``, the output folder (absolute); ``fields``; ``mesh``, the mesh
+      files asked for (``"stl"``, ``"3mf"``; empty when none).
     """
 
     path: Path
@@ -225,6 +233,15 @@ class ProblemFile:
     filter_faces: dict[str, str]
     output: Path
     fields: tuple[str, ...]
+    mesh: tuple[str, ...] = ()
+
+    @property
+    def files(self) -> tuple[str, ...]:
+        """The names of the files ``run`` writes into the output folder, in the order it writes them."""
+        names = [f"{RESULT_NAME}.json", f"{RESULT_NAME}.npz"]
+        names += [f"{RESULT_NAME}.{kind}" for kind in self.fields]
+        names += [f"{MESH_NAME}.{kind}" for kind in self.mesh]
+        return tuple(names)
 
     @property
     def geometry(self) -> tuple[GeometryFile, ...]:
@@ -606,7 +623,7 @@ def read(path: str | os.PathLike) -> ProblemFile:
         for face, word in faces.items()
     }
 
-    output = r.table(content.get("output", {}), "output", ("folder", "fields"), planned=_PLANNED_OUTPUT)
+    output = r.table(content.get("output", {}), "output", ("folder", "fields", "mesh"))
     folder = r.string(output["folder"], "output.folder", "the output folder") if "folder" in output else DEFAULT_OUTPUT
     fields = output.get("fields", [])
     if not isinstance(fields, list) or any(not isinstance(f, str) for f in fields):
@@ -615,6 +632,15 @@ def read(path: str | os.PathLike) -> ProblemFile:
         r.choice(field, f"output.fields[{i}]", "a field kind", FIELDS)
         if field in fields[:i]:
             raise r.error(DuplicateName, f"the field kind {field!r} is asked for twice", f"output.fields[{i}]")
+    formats = output.get("mesh", [])
+    if not isinstance(formats, list) or any(not isinstance(f, str) for f in formats):
+        raise r.error(WrongType, f'output.mesh is a list such as ["stl", "3mf"]; got {_shown(formats)}', "output.mesh")
+    for i, kind in enumerate(formats):
+        if kind in _PLANNED_MESH:
+            raise r.error(NotAvailableYet, _PLANNED_MESH[kind], f"output.mesh[{i}]")
+        r.choice(kind, f"output.mesh[{i}]", "a mesh format", MESH_FORMATS)
+        if kind in formats[:i]:
+            raise r.error(DuplicateName, f"the mesh format {kind!r} is asked for twice", f"output.mesh[{i}]")
 
     return ProblemFile(
         path=path,
@@ -635,6 +661,7 @@ def read(path: str | os.PathLike) -> ProblemFile:
         filter_faces=filter_faces,
         output=path.parent / folder,
         fields=tuple(fields),
+        mesh=tuple(formats),
     )
 
 
@@ -696,7 +723,9 @@ class Prepared:
     def summary(self) -> dict:
         """The prepared problem as plain data: ``problem_file``, ``geometry``, ``grid``, ``volumes`` and
         ``set_up`` (bodies, material, goal, mass limit, member size, supports, loads, filter faces,
-        threads), and ``warnings``. Numbers that are not finite are None."""
+        threads), ``output`` (the folder, the files ``run`` will write, the fields and the mesh files asked
+        for) and
+        ``warnings``. Numbers that are not finite are None."""
         pf, model, setup = self.problem_file, self.model, self.set_up
         mass = {
             "module": "mass",
@@ -748,6 +777,8 @@ class Prepared:
                 "inactive": setup.inactive,
                 "threads": self.threads,
             },
+            "output": {"folder": str(pf.output), "files": list(pf.files), "fields": list(pf.fields),
+                       "mesh": list(pf.mesh)},
             "warnings": [w.as_dict() for w in self.warnings],
         }
         return _plain(summary)
@@ -938,9 +969,13 @@ class RunOutcome:
 
     - ``prepared``: the ``Prepared`` problem; ``part``: the ``StiffPart`` of ``stiff_part`` (its ``result``
       holds the goal, the limits and ``limits_met``).
-    - ``paths``: the files written, by kind (``"json"``, ``"npz"`` and, when asked, ``"vtk"``).
+    - ``paths``: the files written, by kind (``"json"``, ``"npz"`` and, when asked, ``"vtk"``, ``"stl"``
+      and ``"3mf"``).
     - ``seconds``: the seconds the optimisation took (``prepared.seconds`` those of the preparation).
     - ``warnings``: every warning given while preparing and running (``WarningRecord``).
+    - ``finished``: the part's mesh (``michell.part_mesh.FinishedPart``) when ``[output] mesh`` asks for it
+      and every gate passed, else None; ``mesh_refused``: the ``MeshRefused`` of a mesh that failed a gate
+      (no mesh file is then written), else None; ``mesh_seconds``: the seconds the mesh took (None without).
     """
 
     prepared: Prepared
@@ -948,11 +983,22 @@ class RunOutcome:
     paths: dict[str, Path]
     seconds: float
     warnings: tuple[WarningRecord, ...]
+    finished: FinishedPart | None = None
+    mesh_refused: MeshRefused | None = None
+    mesh_seconds: float | None = None
 
     @property
     def limits_met(self) -> bool:
         """Whether the returned design meets every limit."""
         return bool(self.part.result.feasible)
+
+    @property
+    def mesh_delivered(self) -> bool:
+        """Whether the mesh asked for was written and is the optimised part: every gate passed and the
+        delivered-part check is within its tolerance. True when no mesh is asked for."""
+        if not self.prepared.problem_file.mesh:
+            return True
+        return self.finished is not None and self.finished.delivered.within
 
 
 def _optimise(
@@ -974,10 +1020,27 @@ def _optimise(
             pf.path,
         ) from None
     started = time.perf_counter()
+    finished, refused, mesh_seconds = None, None, None
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         part = setup.stiff_part(prepared.mass_g, callback=callback, **settings)
-    seconds = time.perf_counter() - started
+        seconds = time.perf_counter() - started
+        if pf.mesh:
+            try:
+                finished = finish(part, setup, threads=prepared.threads)
+            except MeshRefused as error:
+                refused = error
+            mesh_seconds = time.perf_counter() - started - seconds
+            if finished is not None:
+                distinct = len(np.unique(finished.mesh.vertices.astype(np.float32), axis=0))
+                if "stl" in pf.mesh and distinct != len(finished.mesh.vertices):
+                    warnings.warn(
+                        f"part.stl stores coordinates as float32: {len(finished.mesh.vertices) - distinct} of the "
+                        f"mesh's {len(finished.mesh.vertices)} vertices round onto another one, so the file joins them "
+                        "(part.3mf keeps every coordinate)",
+                        StlRounding,
+                        stacklevel=2,
+                    )
     records = prepared.warnings + _recorded(caught)
     base = folder / RESULT_NAME
     paths = {"json": base.with_suffix(".json"), "npz": base.with_suffix(".npz")}
@@ -991,6 +1054,24 @@ def _optimise(
             held_solid=setup.keep_solid.mask,
             active=prepared.model.active,
         )
+    mesh_record = None
+    if pf.mesh:
+        if finished is not None:
+            for kind in pf.mesh:
+                paths[kind] = (folder / MESH_NAME).with_suffix(f".{kind}")
+                (write_stl if kind == "stl" else write_3mf)(paths[kind], finished.mesh)
+            mesh_record = finished.summary()
+            mesh_record["written"] = True
+            mesh_record["stl_distinct_float32_vertices"] = (
+                int(len(np.unique(finished.mesh.vertices.astype(np.float32), axis=0))) if "stl" in pf.mesh else None
+            )
+        else:
+            mesh_record = {
+                "written": False,
+                "refused": refused.as_dict(),
+                "gates": [gate.as_dict() for gate in refused.gates],
+            }
+        mesh_record["seconds"] = mesh_seconds
     summary = prepared.summary()
     record = {
         "problem_file": summary["problem_file"],
@@ -1002,8 +1083,14 @@ def _optimise(
         "files": [path.name for path in paths.values()],
         "seconds": {"prepare": prepared.seconds, "optimise": seconds},
     }
+    if mesh_record is not None:
+        record["mesh"] = mesh_record
+        record["seconds"]["mesh"] = mesh_seconds
     write_result(base, part, record=record)
-    return RunOutcome(prepared=prepared, part=part, paths=paths, seconds=seconds, warnings=records)
+    return RunOutcome(
+        prepared=prepared, part=part, paths=paths, seconds=seconds, warnings=records, finished=finished,
+        mesh_refused=refused, mesh_seconds=mesh_seconds,
+    )  # fmt: skip
 
 
 def run(
@@ -1023,14 +1110,20 @@ def run(
       and the run's record: the problem file's name and SHA-256, each geometry file's, the grid and its
       origin, the volume table, the set-up report, the warnings, the files written and the seconds used);
     - ``result.vtk`` when ``[output] fields`` holds ``"vtk"``: the nominal design, the design after the
-      robust step, the voxels held solid and the active voxels (``michell.export.write_vtk``).
+      robust step, the voxels held solid and the active voxels (``michell.export.write_vtk``);
+    - ``part.stl`` and ``part.3mf`` when ``[output] mesh`` holds ``"stl"`` and ``"3mf"``: the part's closed
+      mesh (``michell.part_mesh.finish``), and a ``mesh`` section in ``result.json`` (the level, the
+      triangles, the volume and masses, the loose pieces and cavities, every gate with its numbers, the
+      delivered-part check). A mesh that fails a gate is not written; the section then holds the refusal
+      (``RunOutcome.mesh_refused``). STL stores float32 coordinates, 3MF the float64 ones.
 
     ``callback`` is passed to ``stiff_part`` (called after every pass with the step, the pass number and its
     ``RecipePass``). Returns a ``RunOutcome`` (the outcome and the paths). A design that misses a limit is
     returned all the same (``RunOutcome.limits_met`` is False, and ``stiff_part`` warns ``LimitNotMet``).
     Refusals are those of ``prepare``; an ``EngineError`` during the passes leaves with its
-    ``partial_result`` (``stiff_part``), and nothing is written. Warnings are kept in
-    ``RunOutcome.warnings`` and in ``result.json``, and issued again."""
+    ``partial_result`` (``stiff_part``), and nothing is written. Warnings (among them
+    ``michell.part_mesh.DeliveredPartDiffers``) are kept in ``RunOutcome.warnings`` and in ``result.json``,
+    and issued again."""
     outcome = _optimise(_prepare(file, threads), out, callback)
     _reissue(outcome.warnings)
     return outcome
@@ -1040,6 +1133,8 @@ __all__ = [
     "DEFAULT_OUTPUT",
     "DEFAULT_SIZE_VOXELS",
     "FIELDS",
+    "MESH_FORMATS",
+    "MESH_NAME",
     "GOALS",
     "RESULT_NAME",
     "SCHEMA",

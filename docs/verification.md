@@ -21,7 +21,9 @@ volumes, as the voxels are halved, on bodies whose edges and vertices lie exactl
 threads, and the voxel model of a part built from design, solid and void regions; and it checks supports and
 loads placed on that model by the bodies they touch against closed forms and against a part set up by hand; and
 it checks a part given as a problem file with STL files, and the `michell run` command on it, against the same
-part set up by hand. The measure, the set-up and the limit of every row were fixed before its first result
+part set up by hand; and it checks the closed mesh made from an optimised part, with the faces of its regions
+exact, on results built by hand and through `michell run`, against its gates and against the design it came
+from. The measure, the set-up and the limit of every row were fixed before its first result
 was computed, with four exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
 were set after trial runs; and in row 30 the convergence measure (the largest error over 8 placements of
@@ -204,8 +206,23 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 35 | Taubin smoothing: torus surface, 50 iterations, relative change of the volume | property of the design | 0.00383 | < 0.02 | pass | roughness (mean angle between neighbouring normals) 2.14 degrees before, 1.87 after; lam 0.5, mu -0.53 |
 | 35 | 3MF: torus surface written and read back, entries of the vertices and triangles that differ | property of the design | 0 | ≤ 0 | pass | 33168 vertices, 66336 triangles; file 0.824 MB |
 | 35 | 3MF: parts of the package missing from or beyond the three required | property of the design | 0 | ≤ 0 | pass | [Content_Types].xml, _rels/.rels, 3D/3dmodel.model |
+| 36 | Part mesh: solid regions nested with the design region, gates failed | property of the design | 0 | ≤ 0 | pass | 7 gates; 41336 triangles, one body of genus 2 (voxel body 2); envelope 9600 mm3 |
+| 36 | Part mesh: solid regions nested with the design region, relative difference of the organic volume from its target | property of the design | 0.000265 | ≤ 0.002 | pass | organic 1780 mm3, target 1780 mm3 at level 0.4737 (3 levels tried); delivered compliance -0.53 % |
+| 36 | Part mesh: solid regions overlapping with the design region, gates failed | property of the design | 0 | ≤ 0 | pass | 7 gates; 38280 triangles, one body of genus 2 (voxel body 2); envelope 9600 mm3 |
+| 36 | Part mesh: solid regions overlapping with the design region, relative difference of the organic volume from its target | property of the design | 0.000282 | ≤ 0.002 | pass | organic 1660 mm3, target 1660 mm3 at level 0.4757 (3 levels tried); delivered compliance -0.56 % |
+| 36 | Part mesh: solid regions touching with the design region, gates failed | property of the design | 0 | ≤ 0 | pass | 7 gates; 41336 triangles, one body of genus 2 (voxel body 2); envelope 9600 mm3 |
+| 36 | Part mesh: solid regions touching with the design region, relative difference of the organic volume from its target | property of the design | 0.000265 | ≤ 0.002 | pass | organic 1780 mm3, target 1780 mm3 at level 0.4737 (3 levels tried); delivered compliance -0.53 % |
+| 36 | Part mesh: a solid box's outer face on the envelope, largest distance of the mesh's vertices on that face from its plane (mm) | property of the design | 0 | ≤ 1e-06 | pass | 196 vertices on the face; the gate's largest distance over every region 5.55e-17 mm |
+| 36 | Part mesh: a void cylinder (32 sides) through the part, vertices of the mesh on its wall that are not the void mesh's | property of the design | 0 | ≤ 0 | pass | 64 vertices on the wall, the void mesh has 66; gate passed |
+| 36 | Part mesh: a result with a detached lump above 1 % of the whole is refused by the gate 'one body' (0 when refused) | property of the design | 0 | ≤ 0 | pass | lump 3.15 % of the whole: one body: 2 bodies of at least 1 % of the whole (3839.46 mm3); the second holds 120.775 mm3; 0 loose pieces below it dropped |
+| 36 | Part mesh: a detached lump below 1 % of the whole is dropped and listed (0 when it is) | property of the design | 0 | ≤ 0 | pass | 1 piece dropped, 0.402 % of the whole |
+| 36 | Part mesh: a solid region apart from the design region cannot be joined and is refused by the gate 'envelope' (0 when refused) | property of the design | 0 | ≤ 0 | pass | envelope: the design and solid regions joined make 2 bodies, not one: a region that neither overlaps nor shares a face with the others cannot be joined; make the regions overlap |
+| 37 | Part mesh: row 32's bore loaded through a pin after a short stiff_part run, held-solid voxel centres outside the mesh | property of the design | 0 | ≤ 0 | pass | 800 held voxels (the skin); level 0.5169, 44742 triangles, delivered compliance -1.84 % |
+| 37 | Part mesh: michell run on the example bridge, gates failed | property of the design | 0 | ≤ 0 | pass | exit status 0; level 0.5070, 41126 triangles; mesh 28.1 g, mass limit 28.3 g, design 28.3 g, voxels 28.1 g; organic volume +0.035 % from its target |
+| 37 | Part mesh: michell run on the example bridge, triangles that differ between part.stl and part.3mf (float32) | independent computation | 0 | ≤ 0 | pass | 41126 triangles in part.stl, 41126 in part.3mf |
+| 37 | Part mesh: michell run on the example bridge, relative difference of the compliance of the mesh voxelised back from the result's | property of the design | 0.0333 | ≤ 0.05 | pass | compliance 8.65 against 8.95 (-3.33 %); voxels changing side 0.86 % of 3584 (6 gained, 25 lost), reported with no limit |
 
-165 passed, 0 failed, 0 not run.
+180 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 
@@ -217,7 +234,7 @@ Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`, and
 CalculiX (`tools/reference/make_calculix_reference.py` writes it; CalculiX is not needed to run the row);
 row 9 solves its problems a second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy,
 row 16 solves the 3D system directly with SciPy, and rows 27 and 28 measure their members with SciPy's
-morphological opening. Row 33 reads the example problem file in `examples/bridge_file/` (the folder
+morphological opening. Rows 33 and 37 read the example problem file in `examples/bridge_file/` (the folder
 `examples` beside `tests/`, or `--examples`). Without them those rows are listed as not run. The command
 exits with status 1 when a row fails (and, with `--require-all`, when a row was not run). The test suite runs
 the same functions.

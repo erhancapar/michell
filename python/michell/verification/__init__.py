@@ -41,7 +41,12 @@ iso-surface of a field (``michell.surface.iso_surface``): a sphere's distance fi
 against the exact volume and area, a torus's genus and volume, two spheres joined, touching and apart,
 fields with whole layers of samples exactly at the level, and the thread count. Row 35 checks Taubin
 smoothing (``michell.surface.smooth``) on the torus and the 3MF file (``michell.mesh.write_3mf`` and
-``read_3mf``) read back.
+``read_3mf``) read back. Row 36 checks the part's closed mesh (``michell.part_mesh.finish``) on results built
+by hand: solid regions nested in, overlapping and touching the design region, the exact face of a solid box
+and the wall of a void cylinder, and the refusals of a detached lump and of a region that cannot be joined.
+Row 37 checks it on optimised parts: the held skin of row 32's bore inside the mesh after a short run, and
+``michell run`` on the example bridge, which writes ``part.stl`` and ``part.3mf`` (it reads the example's
+folder and reports "not run" when it is absent).
 """
 
 from __future__ import annotations
@@ -101,6 +106,7 @@ from michell.verification.optimisation_rows import row_7_gradients, row_8_mbb_wi
 from michell.verification.problem_file_rows import row_33_problem_file, row_33_run
 from michell.verification.recipe_rows import row_28_recipe_bridge
 from michell.verification.robust_rows import row_21_projection, row_22_robust_gradients, row_23_robust_mbb
+from michell.verification.part_mesh_rows import row_36_part_mesh, row_37_bore, row_37_bridge
 from michell.verification.surface_rows import row_34_iso_surface, row_35_smoothing_and_3mf
 
 
@@ -111,7 +117,7 @@ def examples_beside(reference: Path | str | None) -> Path | None:
 
 
 def all_rows(reference: Path | str | None = None, examples: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 35 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
+    """Runs rows 1 to 37 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
     the repository: ``tests/reference``); ``examples`` the folder that holds ``bridge_file/`` (in the
     repository: ``examples``), by default the folder ``examples`` two levels above ``reference`` (the
     repository's, when ``reference`` is ``tests/reference``)."""
@@ -164,6 +170,9 @@ def all_rows(reference: Path | str | None = None, examples: Path | str | None = 
     rows += row_33_run(examples)
     rows += row_34_iso_surface()
     rows += row_35_smoothing_and_3mf()
+    rows += row_36_part_mesh()
+    rows += row_37_bore()
+    rows += row_37_bridge(examples)
     return rows
 
 
@@ -224,4 +233,7 @@ __all__ = [
     "row_33_run",
     "row_34_iso_surface",
     "row_35_smoothing_and_3mf",
+    "row_36_part_mesh",
+    "row_37_bore",
+    "row_37_bridge",
 ]

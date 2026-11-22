@@ -24,7 +24,8 @@ From the repository:
     michell run examples/bridge_file/bridge.toml       # about a minute on one thread
 
 `check` prints the grid, the volume table, each support and load (its contact faces, nodes and point of
-action), the density filter's faces, the mass bound and the member size. `run` prints a line per pass and
-writes `result.json`, `result.npz` and `result.vtk` (the design, for ParaView) into `out/` beside the file;
+action), the density filter's faces, the mass bound, the member size and the files `run` will write. `run`
+prints a line per pass and writes `result.json`, `result.npz`, `result.vtk` (the design, for ParaView) and
+the part as a closed mesh, `part.stl` and `part.3mf`, into `out/` beside the file;
 `--out DIR` writes them elsewhere and `--json` prints the outcome as JSON. The arrays, the mass bound and
 the compliance equal those of the script built by hand (verification row 33).

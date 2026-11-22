@@ -22,6 +22,7 @@ import math
 import numbers
 import warnings
 from collections.abc import Mapping, Sequence
+import dataclasses
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -157,6 +158,9 @@ class VoxelModel:
     - ``bodies``: the number of bodies of the active set joined through voxel faces, and ``body_sizes``
       their sizes in voxels, largest first, when there is more than one (else empty).
     - ``mirror`` and ``threads``: as given.
+    - ``meshes``: the regions' closed meshes as given (each as ``Mesh.closed()`` returns it), by name, the
+      design region under ``"design"``; ``roles`` gives each name's role (``"design"``, ``"solid"`` or
+      ``"void"``). The mesh of the part (``michell.part_mesh.finish``) cuts and joins them.
     """
 
     grid: Grid3d
@@ -172,6 +176,12 @@ class VoxelModel:
     body_sizes: tuple[int, ...]
     mirror: tuple[str, ...]
     threads: int
+    meshes: Mapping[str, Mesh] = dataclasses.field(default_factory=lambda: MappingProxyType({}))
+
+    @property
+    def roles(self) -> dict[str, str]:
+        """The role of each region by name: ``"design"``, ``"solid"`` or ``"void"``."""
+        return {row.name: row.role for row in self.volumes if row.role in ("design", "solid", "void")}
 
     @property
     def active(self) -> np.ndarray:
@@ -396,6 +406,7 @@ def voxel_model(
         body_sizes=tuple(sizes) if len(sizes) > 1 else (),
         mirror=planes,
         threads=threads,
+        meshes=MappingProxyType(dict(meshes)),
     )
 
 

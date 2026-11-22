@@ -9,11 +9,13 @@ found; it solves nothing (``michell.problem_file.prepare``). ``run`` does the sa
 and writes the outcome (``michell.problem_file.run``). With ``--json`` the standard output holds one JSON
 object and nothing else; the line printed after every pass of ``run`` then goes to standard error.
 
-Exit status: 0 when the file is accepted (``check``) or the run met its limits (``run``); 1 when the run
-finished but a limit is not met; 2 when the input is refused: anything refused before the first pass (the
-problem file, the geometry, the set-up, a part that is not held, an output folder that cannot be made, and
-the command line itself, which ``argparse`` refuses with a usage line on standard error and nothing on
-standard output); 3 when the engine fails during the passes (an ``EngineError`` of the engine, such as
+Exit status: 0 when the file is accepted (``check``) or the run met its limits and delivered the mesh asked
+for (``run``); 1 when the run finished but a limit is not met or the delivered mesh differs (the part's
+mesh failed a gate and was not written, or the mesh voxelised back differs from the optimised design by more
+than its tolerance, ``michell.part_mesh.DeliveredPartDiffers``); 2 when the input is refused: anything
+refused before the first pass (the problem file, the geometry, the set-up, a part that is not held, an output
+folder that cannot be made, and the command line itself, which ``argparse`` refuses with a usage line on
+standard error and nothing on standard output); 3 when the engine fails during the passes (an ``EngineError`` of the engine, such as
 ``solver_not_converged``, rather than a refusal of ``michell.errors``) or anything else goes wrong (code
 ``internal_error``).
 """
@@ -29,6 +31,7 @@ from michell import __version__, engine_version
 from michell._engine import EngineError
 from michell.errors import _Refused
 from michell.export import _plain
+from michell.part_mesh import DELIVERED_TOLERANCE
 from michell.problem_file import Prepared, RunOutcome, _optimise, _prepare
 
 LIMITS_MET, LIMITS_NOT_MET, REFUSED, ENGINE_FAILED = 0, 1, 2, 3
@@ -103,6 +106,8 @@ def _check_lines(summary: dict) -> list[str]:
     given = "given" if size["given"] else "not given: five voxel sides"
     lines.append(f"member size: {size['size_mm']:g} mm, {size['voxels']:.3g} voxels ({given})")
     lines.append(f"threads: {set_up['threads']}")
+    output = summary["output"]
+    lines.append(f"run writes into {output['folder']}: {', '.join(output['files'])}")
     for item in summary["warnings"]:
         lines.append(f"warning ({item['category']}): {item['message']}")
     return lines
@@ -123,9 +128,28 @@ def _run_summary(outcome: RunOutcome) -> dict:
             "threads": result.threads,
             "seconds": {"prepare": outcome.prepared.seconds, "optimise": outcome.seconds},
             "files": {kind: str(path) for kind, path in outcome.paths.items()},
+            "mesh": _mesh_summary(outcome),
             "warnings": [w.as_dict() for w in outcome.warnings],
         }
     )
+
+
+def _mesh_summary(outcome: RunOutcome) -> dict | None:
+    if not outcome.prepared.problem_file.mesh:
+        return None
+    if outcome.finished is None:
+        return {"written": False, "delivered": False, "refused": outcome.mesh_refused.as_dict()}
+    finished = outcome.finished
+    return {
+        "written": True,
+        "delivered": finished.delivered.within,
+        "level": finished.level,
+        "triangles": len(finished.mesh.triangles),
+        "mass_g": finished.mass_g,
+        "compliance_difference": finished.delivered.goal_difference,
+        "changed_share": finished.delivered.changed_share,
+        "seconds": outcome.mesh_seconds,
+    }
 
 
 def _pass_line(step: str, number: int, record) -> str:
@@ -181,7 +205,7 @@ def _run(args) -> int:
         status = REFUSED if isinstance(error, _Refused) else ENGINE_FAILED
         return _refused(args, "run", error, status)
     summary = _run_summary(outcome)
-    status = LIMITS_MET if outcome.limits_met else LIMITS_NOT_MET
+    status = LIMITS_MET if outcome.limits_met and outcome.mesh_delivered else LIMITS_NOT_MET
     if args.json:
         print(json.dumps({"command": "run", "exit": status, "result": summary}, allow_nan=False))
         return status
@@ -197,6 +221,16 @@ def _run(args) -> int:
         f"{summary['passes']} passes in {summary['seconds']['optimise']:.1f} s on {summary['threads']} thread(s); "
         f"stopped by {summary['stop_reason']}"
     )
+    mesh = summary["mesh"]
+    if mesh is not None and mesh["written"]:
+        print(
+            f"mesh: level {mesh['level']:.4g}, {mesh['triangles']} triangles, {mesh['mass_g']:.6g} g; mesh voxelised "
+            f"back: compliance {100 * mesh['compliance_difference']:+.2f} %, {100 * mesh['changed_share']:.2f} % of "
+            f"the voxels change side ({'within' if mesh['delivered'] else 'NOT within'} "
+            f"{100 * DELIVERED_TOLERANCE:g} %)"
+        )
+    elif mesh is not None:
+        print(f"mesh refused, not written: {mesh['refused']['message']}")
     print("written: " + ", ".join(summary["files"].values()))
     return status
 

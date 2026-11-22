@@ -55,3 +55,4 @@ threads = 1
 [output]
 folder = "out"
 fields = ["vtk"]
+mesh = ["stl", "3mf"]

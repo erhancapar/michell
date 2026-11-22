@@ -1,10 +1,10 @@
 # The problem file
 
 Status: **schema `michell/0`, read and run** for parts given as STL files: `michell check` and `michell run`
-work on it, and so do `michell.prepare` and `michell.run` in Python (`michell.problem_file`). A STEP file
-with named bodies, symmetry, mesh output, estimates of time and memory, a picture of the set-up and a report
-are planned in [milestone 3](../roadmap.md) and refused for now with a message that says so (below). A
-machine-readable description of what is accepted now is in `schema/problem-0.schema.json`; the reader is
+work on it, and so do `michell.prepare` and `michell.run` in Python (`michell.problem_file`), and a run
+can write the part as a closed mesh (`[output] mesh`, STL and 3MF). A STEP file with named bodies, symmetry,
+estimates of time and memory, a picture of the set-up and a report are planned in [milestone 3](../roadmap.md)
+and refused for now with a message that says so (below). A machine-readable description of what is accepted now is in `schema/problem-0.schema.json`; the reader is
 the reference for the exact checks.
 
 ## Why one file
@@ -69,6 +69,7 @@ threads = 1
 [output]
 folder = "out"
 fields = ["vtk"]
+mesh = ["stl", "3mf"]
 ```
 
 Prepared from this file, the bridge has the same active voxels, voxels held solid, held degrees of freedom,
@@ -119,8 +120,10 @@ problem file.
   that face of the grid (by default a face is closed only when one support covers its whole active area,
   [geometry.md](geometry.md#supports-and-loads)). There is no random seed, because nothing is random, and no
   pass limit: the procedure fixes its passes.
-- **`[output]`**: `folder` (`"out"` by default, relative to the problem file; `--out` overrides it) and
-  `fields`, the field files to write besides the result: `["vtk"]` for `result.vtk`.
+- **`[output]`**: `folder` (`"out"` by default, relative to the problem file; `--out` overrides it);
+  `fields`, the field files to write besides the result: `["vtk"]` for `result.vtk`; and `mesh`, the part
+  as a closed triangle mesh: `["stl", "3mf"]` for `part.stl` and `part.3mf`, either or both
+  ([geometry.md](geometry.md#from-the-result-to-the-mesh)).
 
 Every run is the two-step procedure of `michell.recipes.stiff_part` (the robust formulation, then the
 member-size limit), through `michell.attach.SetUp.stiff_part`, so the returned design is always a 0/1
@@ -138,17 +141,22 @@ solves nothing. It prints the grid (counts, voxel side, the grid's corner, activ
 voxels), the bodies of the part, the volume table, the material, each support and load (its contact faces
 and area, or its voxels and volume, its nodes, the point of action, the share of a load that falls on held
 degrees of freedom, the held skin and the closed faces it lies on), the density filter's faces, the goal,
-the mass bound in grams and the member size with whether it was given. `run` prints the same, then a line
-per pass and a short summary, and writes the outcome.
+the mass bound in grams, the member size with whether it was given, and the output folder with the files
+`run` will write there. `run` prints the same, then a line per pass and a short summary (with the mesh's
+level, triangles, mass and its delivered-part check when a mesh is asked for), and writes the outcome.
 
 In Python, `michell.problem_file.read(path)` gives the checked description (`ProblemFile`),
 `michell.prepare(path)` everything `check` prints (`Prepared`, with `summary()` as plain data) and
 `michell.run(path, out=None, threads=None, callback=None)` the outcome (`RunOutcome`: the `StiffPart`, the
-paths of the files written, the seconds and the warnings).
+paths of the files written, the seconds, the warnings and, when a mesh is asked for, the `FinishedPart` of
+`michell.finish` or the refusal of the mesh).
 
 `--json` makes either command print one JSON object on standard output and nothing else (`run` then prints
 its pass lines on standard error). The exit status is 0 when the file is accepted (`check`) or the run met
-its limits (`run`); 1 when the run finished but a limit is not met (the design is written all the same); 2
+its limits and delivered the mesh asked for (`run`); 1 when the run finished but a limit is not met or the
+delivered mesh differs: the mesh failed a gate and was not written, or the mesh voxelised back on the run's
+grid has a compliance more than 5 % from the optimised design's (warning `DeliveredPartDiffers`); the design
+and whatever passed are written all the same; 2
 when the input is refused, which is anything refused before the first pass: the problem file, the
 geometry, the set-up, a part that is not held against rigid motion (`singular_system`), an output folder
 that cannot be made, and the command line itself (a bad option is refused with a usage line on standard
@@ -167,9 +175,18 @@ wrong (code `internal_error`).
   every pass) and the record of the run: the problem file's name and SHA-256, each geometry file's name and
   SHA-256, the grid and its origin, the volume table, the set-up report (bodies, material, goal, mass limit,
   member size, every support and load, the filter faces), the warnings given, the files written and the
-  seconds the preparation and the optimisation took. `michell.read_result` reads both formats;
+  seconds the preparation and the optimisation took. With `[output] mesh`, a `mesh` section: the level of
+  the surface, the triangles and vertices, the volume and the mass against the mass limit and the voxel
+  model's, the organic volume against its target, the loose pieces dropped, the closed cavities, every gate
+  with its numbers, the genus against the voxel body's, the delivered-part check (voxels gained and lost,
+  each load case's compliance on the mesh voxelised back against the result's), and the seconds; for a mesh
+  that failed a gate, the refusal and the gates measured. `michell.read_result` reads both formats;
 - `result.vtk` with `fields = ["vtk"]`: the nominal design, the design after the robust step, the voxels
-  held solid and the active voxels, for ParaView.
+  held solid and the active voxels, for ParaView;
+- `part.stl` and `part.3mf` with `mesh = ["stl", "3mf"]`: the part's closed mesh, the same triangles in
+  both. STL stores single-precision coordinates (about 1e-5 mm on a 100 mm part), 3MF the double-precision
+  ones, so the 3MF file keeps the regions' faces exact; a mesh whose STL would join vertices gives the
+  warning `StlRounding`. A mesh that fails a gate is not written.
 
 A refused input is reported the same way every time: a stable code, the key's place in the file, the file
 and a sentence for people (with `--json`, `{"code", "path", "file", "message", "details"}`). The codes of
@@ -202,14 +219,14 @@ later version fails clearly instead of being half read:
   instances) comes with the optional STEP support; until then every region and marker body is an STL file.
 - `[[rules]] module = "symmetry"`: the mirror filter and the checks that the regions, supports and load
   cases mirror are still to be built.
-- `[output] mesh`: turning the design into a closed mesh (STL, 3MF) is still to be built.
+- `[output] mesh = ["step"]`: a STEP file of the mesh comes with the optional STEP support.
 - The reserved load kinds `moment_n_mm`, `pressure_mpa` and `remote_force_n`.
 
 ## Planned
 
 - **STEP input**: `[geometry] file` with named bodies as the regions and marker bodies, by name.
 - **Symmetry**: `[[rules]] module = "symmetry"`, `planes = ["y"]`, through the centre of the regions' box.
-- **Mesh output**: `[output] mesh = ["stl", "3mf"]`.
+- **STEP output**: `[output] mesh = ["step"]`, the mesh of the part as a STEP file.
 - **`check` with estimates and a picture**: an estimate of time and memory, and a picture of the set-up
   (supports and loads drawn on the voxel model).
 - **A report**: one self-contained page with the inputs and their hashes, the set-up, views of the result,

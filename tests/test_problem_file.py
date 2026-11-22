@@ -170,6 +170,8 @@ def test_the_example_file_reads_into_its_description():
     assert problem.mass.max_fraction == 0.30 and problem.mass.max_g is None
     assert problem.member_size_mm == 5.0 and problem.threads == 1
     assert problem.filter_faces == {} and problem.output == EXAMPLE / "out" and problem.fields == ("vtk",)
+    assert problem.mesh == ("stl", "3mf")
+    assert problem.files == ("result.json", "result.npz", "result.vtk", "part.stl", "part.3mf")
 
 
 def test_the_defaults(tmp_path):
@@ -258,7 +260,18 @@ REFUSALS = [
         "run.filter_faces.x",
     ),
     (("max_fraction = 0.5\n", 'max_fraction = 0.5\n\n[output]\nformat = "json"\n'), "unknown_key", "output.format"),
-    (("max_fraction = 0.5\n", 'max_fraction = 0.5\n\n[output]\nmesh = ["stl"]\n'), "not_available_yet", "output.mesh"),
+    (("max_fraction = 0.5\n", 'max_fraction = 0.5\n\n[output]\nmesh = ["step"]\n'), "not_available_yet", "output.mesh[0]"),
+    (("max_fraction = 0.5\n", 'max_fraction = 0.5\n\n[output]\nmesh = "stl"\n'), "wrong_type", "output.mesh"),
+    (
+        ("max_fraction = 0.5\n", 'max_fraction = 0.5\n\n[output]\nmesh = ["obj"]\n'),
+        "out_of_range",
+        "output.mesh[0]",
+    ),
+    (
+        ("max_fraction = 0.5\n", 'max_fraction = 0.5\n\n[output]\nmesh = ["stl", "stl"]\n'),
+        "duplicate_name",
+        "output.mesh[1]",
+    ),
     # missing keys
     (('[regions]\ndesign = "bar.stl"\n', ""), "missing_key", "regions"),
     (('design = "bar.stl"', ""), "missing_key", "regions.design"),
@@ -766,5 +779,8 @@ def test_the_example_runs_from_the_command_line(tmp_path):
     assert finished.returncode == 0, finished.stdout + finished.stderr
     data = json.loads(finished.stdout)
     assert data["result"]["limits_met"] == [True, True]
-    assert {path.name for path in tmp_path.iterdir()} == {"result.json", "result.npz", "result.vtk"}
+    assert {path.name for path in tmp_path.iterdir()} == {
+        "result.json", "result.npz", "result.vtk", "part.stl", "part.3mf",
+    }  # fmt: skip
     assert data["result"]["warnings"] == []
+    assert data["result"]["mesh"]["written"] and data["result"]["mesh"]["delivered"]

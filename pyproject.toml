@@ -11,7 +11,10 @@ requires-python = ">=3.11"  # tomllib reads the problem file
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 authors = [{ name = "Erhan Çapar" }]
-dependencies = ["numpy>=2.0"]  # the oldest NumPy the tests are run against
+dependencies = [
+    "numpy>=2.0",  # the oldest NumPy the tests are run against
+    "manifold3d>=3.5.0",  # the cut and join of closed meshes (Apache-2.0); the oldest version tested
+]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Programming Language :: Python :: 3",

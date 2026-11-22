@@ -38,6 +38,11 @@ The package holds:
   points), ``iso_surface`` (the closed ``Mesh`` where the field equals a level, by the engine's marching
   tetrahedra), ``refine`` (the field on a finer lattice, by linear or monotone cubic interpolation) and
   ``smooth`` (Taubin smoothing, with its ``Smoothing`` report);
+- ``michell.part_mesh``: ``finish`` (also ``michell.finish``), the closed mesh of an optimised part from the
+  outcome of ``stiff_part`` and its set-up: the organic surface cut by the envelope, joined with the exact
+  solid regions and cut by the exact void regions (manifold3d), with its level, gates and the check of the
+  delivered part, as a ``FinishedPart``; the refusal ``MeshRefused`` and the warnings
+  ``DeliveredPartDiffers``, ``GenusDiffers``, ``LevelOffTarget`` and ``StlRounding``;
 - ``michell.regions``: ``occupancy``, the share of every voxel of a grid inside a union of meshes minus
   another (the engine's voxeliser), and ``voxel_model``, the ``VoxelModel`` of a part from its design, solid
   and void regions (the grid, the active and the held-solid voxels, a volume table, the bodies, an optional
@@ -49,7 +54,8 @@ The package holds:
 - ``michell.problem_file``: the problem file (TOML, ``docs/design/problem-file.md``): ``read`` (the file
   checked into a ``ProblemFile``), ``prepare`` (the geometry, the voxel model and the set-up, solving
   nothing: what ``michell check`` shows) and ``run`` (``prepare``, ``stiff_part`` and the files
-  ``result.json``, ``result.npz`` and optionally ``result.vtk``: what ``michell run`` does), also as
+  ``result.json``, ``result.npz`` and optionally ``result.vtk``, ``part.stl`` and ``part.3mf``: what
+  ``michell run`` does), also as
   ``michell.prepare`` and ``michell.run``; its refusals are the ``ProblemFileError`` family of
   ``michell.errors``, one stable code per kind of fault;
 - ``dot``, the dot product of two vectors in the engine, for responses (with the OpenBLAS build that NumPy
@@ -86,10 +92,19 @@ from michell.modules import Filter, Partials, Response
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, LimitNotMet, Pass, Result, optimise
 from michell.problem import LoadCase, Material, Problem
-from michell import attach, export, mesh, problem_file, recipes, regions, select, surface
+from michell import attach, export, mesh, part_mesh, problem_file, recipes, regions, select, surface
 from michell.attach import Case, Load, LoadOnSupport, SetUp, Support, set_up
 from michell.export import read_result, write_result, write_vtk
 from michell.mesh import Mesh, read_3mf, read_stl, write_3mf, write_stl
+from michell.part_mesh import (
+    DeliveredPartDiffers,
+    FinishedPart,
+    GenusDiffers,
+    LevelOffTarget,
+    MeshRefused,
+    StlRounding,
+    finish,
+)
 from michell.problem_file import Prepared, ProblemFile, RunOutcome, prepare, run
 from michell.recipes import GridTooCoarse, RecipePass, StiffPart, member_size_bound, stiff_part
 from michell.regions import VolumeRow, VoxelModel, VoxelVolumeDiffers, voxel_model
@@ -102,18 +117,22 @@ __version__ = _version("michell")
 __all__ = [
     "Case",
     "Compliance",
+    "DeliveredPartDiffers",
     "DensityFilter",
     "Elasticity",
     "Elasticity3d",
     "EngineError",
     "Evaluation",
     "Filter",
+    "FinishedPart",
+    "GenusDiffers",
     "GradientCheck",
     "Grid",
     "Grid3d",
     "GridTooCoarse",
     "HelmholtzFilter",
     "KeepSolid",
+    "LevelOffTarget",
     "Limit",
     "LimitNotMet",
     "Load",
@@ -123,6 +142,7 @@ __all__ = [
     "Material",
     "MemberSize",
     "Mesh",
+    "MeshRefused",
     "Mma",
     "MovingAsymptotes",
     "Oc",
@@ -143,6 +163,7 @@ __all__ = [
     "SetUp",
     "Smoothing",
     "StiffPart",
+    "StlRounding",
     "Support",
     "VolumeRow",
     "VoxelModel",
@@ -156,12 +177,14 @@ __all__ = [
     "element_stiffness_3d",
     "engine_version",
     "export",
+    "finish",
     "iso_surface",
     "member_size_bound",
     "member_threshold",
     "mesh",
     "on",
     "optimise",
+    "part_mesh",
     "prepare",
     "problem_file",
     "read_3mf",

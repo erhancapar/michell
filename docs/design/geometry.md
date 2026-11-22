@@ -4,8 +4,9 @@ Status: design note, kept in step with the code. Closed triangle meshes (`michel
 (the engine's `voxel_occupancy`, in Python `michell.regions.occupancy`), the voxel model of a part
 (`michell.regions.voxel_model`), supports and loads on that model (`michell.attach`), and the tools that turn
 a field sampled on a lattice into a smooth closed surface (`michell.surface`: the iso-surface, refining and
-smoothing; the measures of a mesh and 3MF files in `michell.mesh`) exist. Reading STEP and turning an
-optimised design into the part's mesh are planned (see the [roadmap](../roadmap.md)).
+smoothing; the measures of a mesh and 3MF files in `michell.mesh`), and the step from an optimised design
+to the part's closed mesh with exact interfaces (`michell.part_mesh`, below) exist. Reading STEP is planned
+(see the [roadmap](../roadmap.md)).
 
 ## Meshes
 
@@ -329,3 +330,102 @@ names it), one object with one mesh, one build item without a transform; anythin
 components, materials, transforms, extensions, other elements or attributes) is refused with a message that
 names it, never skipped. Verification row 35 writes the torus of row 34 and reads it back, and checks the
 smoothing of that torus.
+
+## From the result to the mesh
+
+`michell.finish(part, setup)` (`michell.part_mesh.finish`) turns the outcome of `stiff_part` into the part's
+closed triangle mesh: the organic surface of the optimised design, cut by the envelope, joined with the
+exact solid regions and cut by the exact void regions, so that every face of a region is the region's own.
+It returns a `FinishedPart`: the mesh, the level of the surface, the volumes and masses, the loose pieces
+dropped, the closed cavities, every gate with its numbers, the genus against the voxel body's, and the
+check of the delivered part. The cut and join use [manifold3d](https://github.com/elalish/manifold)
+(Apache-2.0, version 3.5.0 or later, a required dependency) through its 64-bit mesh interface (`Mesh64`),
+so that the regions' vertices keep their float64 coordinates: a 1e-6 mm interface needs that, since float32
+holds about 1e-5 mm on a 100 mm part. `michell run` calls it when the problem file asks for
+`[output] mesh` ([problem-file.md](problem-file.md#what-comes-back)).
+
+- **The field.** On the voxel centres: the result's filtered field on the design voxels, since that is
+  the field the optimisation drew its designs from. 1 on the voxels of a held skin (held solid without an
+  exact region, such as the skin of a load), so that the surface itself holds them. Continued by
+  repetition (each new voxel takes the mean of its known face neighbours, one layer at a time) three
+  layers into the voxels of the solid regions, so that members run on into the regions and the organic
+  body overlaps them instead of ending on their faces; deeper inside the regions 0, so that the organic
+  surface never runs close beside an exact face, where the cut would leave slivers. Continued three layers
+  into the inactive voxels and beyond the grid, so that the surface overshoots the envelope everywhere and
+  is cut by it; then padded with 0, so that the outer layer is below every level.
+- **The surface.** The field refined by 2 with the monotone cubic order, `iso_surface` at the level, and 10
+  Taubin iterations, all before the cut and join: smoothing slides vertices along the surface, so it must
+  never touch an exact face. Measured on the crossing bars of row 36 and on the example bridge (factor 1, 2,
+  3 against 0 to 40 iterations): at factor 1 the surface stays rough (7 to 10 degrees between neighbouring
+  normals); 5 iterations turn triangles over on the bridge's thin members at factor 1 and 2 (13 and 14),
+  10 or more none; at factor 2 with 10 iterations the roughness is 3.8 degrees on the bars and 5.6 on the
+  bridge, and the compliance of the mesh voxelised back is within 0.15 % of that at factor 3, which doubles
+  the triangles. On the bars, a part symmetric about the plane y = 10, the centre of mass lies 8e-7 mm off that
+  plane and the two halves' volumes differ by 2e-7 of each other (1e-9 and 4e-10 with no smoothing, since
+  smoothing with equal weights follows the tetrahedra, which are not mirror-symmetric).
+- **The cut and join.** (organic body intersected with the envelope) joined with the solid regions, minus
+  the void regions, where the envelope is the design and solid regions joined. Each triangle of a region
+  carries the face id of its plane, so that the triangles of the result can be traced to the region and
+  the face they came from. No step relies on bodies that only touch: the organic body overlaps the solid
+  regions and overshoots the envelope by construction, and the envelope is one boolean union whose result
+  is checked. Three arrangements pass every gate (row 36): solid regions nested in the design region,
+  overlapping it, and touching it on a face. A region that touches the design region on a face is joined by
+  the union itself: manifold3d's symbolic perturbation treats the shared face as inside, so the union is one
+  body whose volume is the two volumes added (also when the shared face is only part of a face), and the
+  organic body crosses that face, since its field runs on into the region. A region that neither overlaps
+  nor touches the others cannot be joined: the envelope gate refuses it by name, with the advice to make
+  the regions overlap. Where the outline of the organic body's cut meets an edge of a region's face,
+  manifold3d can leave a triangle without area (its three corners on that edge); it is removed by flipping
+  its longest edge with the neighbour across it, which moves no vertex and keeps the neighbour's plane.
+- **The level** is found by a root search on the organic part, measured on the finished body: the
+  finished body's volume minus that of the solid regions less the void regions (the finished body holds
+  them whole) equals the volume of the returned design's design-class voxels (its nominal design at 0.5 or
+  more, not held by a solid region; skin voxels count). The search starts at 0.5, brackets the root by steps
+  that double, and closes it by false position (Illinois), until it is within 0.2 %. The exact regions count
+  with their exact volumes. Where the volume jumps at a level (a member that closes or opens) and the
+  search cannot reach 0.2 %, the closest level is taken and `LevelOffTarget` warns.
+- **Loose pieces.** Bodies of the finished mesh with positive volume below 1 % of the whole are dropped and
+  listed (`LoosePiece`); a larger second body is refused: the optimisation's design was one body, and a
+  second one that size is not noise. Closed cavities (bodies with negative volume, inside another) are kept
+  and counted.
+- **The gates.** A mesh that fails one is not returned: `MeshRefused` (code `mesh_refused`) names the gate
+  and holds the numbers. The **envelope** is one body. The mesh is **closed** after merging equal vertices
+  (every edge on exactly two triangles, in opposite directions) and has **no triangle without area**; it is
+  **one body**. The centre of every **held-solid voxel** (of the regions and of the skins) is **inside** the
+  mesh and the centre of every voxel a **void region** fills by majority is **outside** it (each centre
+  tested on the middle ray of the voxelisation below, and where that ray is not conclusive by the parity of
+  a ray along a direction off every axis). **Exact interfaces**: every vertex of a triangle the mesh took
+  from a region lies on the plane of the region's face it came from within 1e-6 mm, and every vertex inside
+  a void region's wall (used only by its triangles) is one of the void mesh's own vertices. Where the wall
+  runs on beyond the part, the vertices on its edge with the part's faces are new by necessity; a void
+  cylinder from face to face of the part has its own vertices only (row 36). The **genus** of the mesh's
+  main body is compared with that of the returned design's voxel body, with a warning (`GenusDiffers`), not
+  a refusal. The voxel body is counted as the iso-surface at 0.5 of the returned design's 0/1 voxels, drawn
+  by the same tetrahedra, so that the two counts join samples along the same diagonals; a face-joined
+  count of the voxels could differ along the others.
+- **The delivered part is checked, not assumed.** The finished mesh is voxelised back on the run's grid
+  (the voxeliser on a grid three times finer, one ray per fine column; a voxel whose occupancy is at least
+  one half is solid); the voxels gained and lost are reported as a share of the returned design's solid
+  voxels, and each load case is solved once on that 0/1 design and its compliance (and the weighted goal)
+  compared with the returned design's. Within 5 % the result says so; beyond it `DeliveredPartDiffers`
+  warns, the numbers are in the result, and `michell run` exits with status 1. On the example bridge the
+  mesh voxelised back is 3.3 % stiffer (its compliance is lower): the returned design still holds some
+  grey voxels, which carry less than solid ones, while the voxels of the mesh are all solid; and 0.9 % of
+  the solid voxels change side, since the surface at the level that matches the design's volume rounds the
+  steps of the voxels off (row 37).
+- **Without region meshes.** For a result built in Python on a bare `Problem` (no voxel model), with its
+  `KeepSolid`, the held voxels are held by the field (1 there), the cut is the grid's box and exactness is
+  not claimed (`FinishedPart.exact` is False, and the gate of exact interfaces says so).
+
+STL files store float32 coordinates, so `part.stl` holds the mesh to about 1e-5 mm on a 100 mm part, and
+`michell run` warns (`StlRounding`) if that rounding would join two vertices; `part.3mf` keeps the float64
+coordinates bit for bit. Time and memory of `finish` (one level search, the gates and the delivered-part
+check, which solves each load case twice), on the crossing bars scaled up, voxels of 1 mm: 99 528 voxels,
+188 000 triangles, 16 s on one thread with a peak of 264 MB (the two solves 14 s of it); 1.5 million voxels,
+1.14 million triangles, 121 s on four threads with a peak of 2.3 GB, of which the field, the level search and
+the gates take 39 s and the two solves 82 s.
+
+Verification row 36 checks the three arrangements, the exact face of a solid box and the wall of a void
+cylinder, and the refusals on results built by hand; row 37 checks that the held skin of row 32's bore
+stays inside the mesh after a short optimisation, and runs `michell run` on the example bridge, which
+writes `part.stl` and `part.3mf`.

@@ -22,7 +22,9 @@ differences, row 26 checks that the limit tells a thin member from a thick one, 
 beam with the limit and measures its members by a morphological opening (SciPy; "not run" without it).
 Row 28 runs the two-step procedure of ``michell.recipes.stiff_part`` on a 3D bridge and measures its mass,
 its discreteness, its members (the opening of row 27 in 3D) and what the member-size step cost in
-stiffness (SciPy; "not run" without it).
+stiffness (SciPy; "not run" without it). Row 29 checks ``KeepSolid`` (elements held solid) on a 2D and a 3D
+part: its forward and backward maps, the derivative of the compliance on the held elements, and a short
+optimisation whose held elements must come back solid within its mass limit.
 """
 
 from __future__ import annotations
@@ -58,6 +60,7 @@ from michell.verification.analysis_rows import (
 )
 from michell.verification.calculix_rows import row_24_calculix
 from michell.verification.filter3d_rows import row_19_gradients, row_20_filter
+from michell.verification.keep_solid_rows import row_29_keep_solid
 from michell.verification.mbb import MBB_CASES
 from michell.verification.member_size_rows import (
     row_25_filter,
@@ -81,7 +84,7 @@ from michell.verification.robust_rows import row_21_projection, row_22_robust_gr
 
 
 def all_rows(reference: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 28 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
+    """Runs rows 1 to 29 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
     the repository: ``tests/reference``)."""
     rows = []
     rows += row_1_element_matrix()
@@ -120,6 +123,7 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_26_thin_and_thick()
     rows += row_27_member_size_mbb()
     rows += row_28_recipe_bridge()
+    rows += row_29_keep_solid()
     return rows
 
 
@@ -169,4 +173,5 @@ __all__ = [
     "row_26_thin_and_thick",
     "row_27_member_size_mbb",
     "row_28_recipe_bridge",
+    "row_29_keep_solid",
 ]

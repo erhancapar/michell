@@ -9,12 +9,14 @@ layout, then the member-size limit reshapes its members (the procedure is writte
 support, so they are closed; the free y and z faces are empty. Verification row 28 runs the same part.
 Run from the repository:
 
-    python examples/bridge_3d_member_size.py [--threads 1] [--vtk bridge.vtk]
+    python examples/bridge_3d_member_size.py [--threads 1] [--vtk bridge.vtk] [--save bridge]
 
 It prints a line per pass and, last, a JSON summary of the run. With ``--vtk`` it also writes the nominal
 design, the design at the end of the robust step and the held elements as one VTK file, which ParaView opens
-(``michell.export.write_vtk``). The supports, the load and the held elements are picked by position with
-``michell.select``.
+(``michell.export.write_vtk``). With ``--save`` it also writes the whole outcome as ``bridge.npz`` (every
+field) and ``bridge.json`` (the values, the limits and whether they were met, why the run stopped and the
+record of every pass), which ``michell.export.read_result`` reads back. The supports, the load and the held
+elements are picked by position with ``michell.select``.
 """
 
 import argparse
@@ -29,6 +31,9 @@ import michell
 parser = argparse.ArgumentParser(description="Optimise a 3D bridge with a minimum member size.")
 parser.add_argument("--threads", type=int, default=1, help="the number of threads of the solves and the filter")
 parser.add_argument("--vtk", metavar="FILE", help="also write the design as a VTK file (for ParaView) to FILE")
+parser.add_argument(
+    "--save", metavar="PATH", help="also write the outcome to PATH.npz (the fields) and PATH.json (the rest)"
+)
 args = parser.parse_args()
 
 nx, ny, nz = 50, 24, 10
@@ -90,4 +95,6 @@ if args.vtk:
     michell.write_vtk(
         args.vtk, grid, nominal=part.nominal, robust_step=part.first_step_nominal, held_solid=keep_solid.mask
     )
+if args.save:
+    michell.write_result(args.save, part)
 print(json.dumps(summary))

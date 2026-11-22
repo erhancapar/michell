@@ -178,7 +178,9 @@ def test_a_member_size_limit_on_a_design_nothing_else_reads_causes_no_solve():
         return adjoint(*args, **kwargs)
 
     problem.solve, problem.adjoint = counted_solve, counted_adjoint
-    result = member_size_run(problem, x, filters[0], with_member_size=True)
+    # Three passes meet neither the mass nor the member-size limit, and optimise says so.
+    with pytest.warns(michell.LimitNotMet):
+        result = member_size_run(problem, x, filters[0], with_member_size=True)
     # One solve per load case per pass and one for the returned design, all on the nominal design;
     # compliance needs no adjoint solve.
     assert calls == ["solve"] * (len(problem.cases) * (len(result.passes) + 1))

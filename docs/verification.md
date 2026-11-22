@@ -14,7 +14,8 @@ mass, their discreteness (the measure of Sigmund, Struct. Multidisc. Optim. 33, 
 compliances, and checks the minimum member size as a limit (Zhou, Lazarov, Wang and Sigmund, Comput. Methods
 Appl. Mech. Engrg. 293, 2015) on thin and thick members and on an optimised beam, whose members it measures by
 a morphological opening; and it runs the two-step procedure of `michell.recipes` (the robust formulation,
-then the member-size limit) on a 3D bridge and measures the design it returns. The measure, the set-up and the limit of every row were fixed before its first result
+then the member-size limit) on a 3D bridge and measures the design it returns, and checks that elements held solid
+(`KeepSolid`) stay solid and carry no derivative, also through a short optimisation. The measure, the set-up and the limit of every row were fixed before its first result
 was computed, with one exception, stated in its note: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
 were set after trial runs. Every limit is an upper bound on the measured value. Measured values are rounded
@@ -107,8 +108,20 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 28 | Two-step recipe on a 3D bridge 50 x 24 x 10: grey share, mean of 4 rho (1 - rho) over the design elements | property of the design | 0.0316 | ≤ 0.05 | pass | over 10968 design elements |
 | 28 | Two-step recipe on a 3D bridge 50 x 24 x 10: share of the solid removed by an opening of 0.9 times the member size | property of the design | 0.0458 | ≤ 0.05 | pass | a ball of diameter 4.5 elements; beyond the clamped faces solid (the support), beyond the free faces empty, the rule fixed before any run |
 | 28 | Two-step recipe on a 3D bridge 50 x 24 x 10: compliance over that at the end of the robust step | property of the design | 0.913 | ≤ 1.1 | pass | compliance 8.95 N mm, at the end of the robust step 9.81 N mm |
+| 29 | KeepSolid on a 2D plate 30 x 10: forward, largest difference from 1 on the held elements and from x elsewhere | closed form | 0 | ≤ 0 | pass | 36 of 300 elements held; x drawn at random from [0.1, 0.9] |
+| 29 | KeepSolid on a 2D plate 30 x 10: derivative of the compliance on the held elements, largest absolute value | gradient | 0 | ≤ 0 | pass | 36 of 300 elements held; the loop's derivative through KeepSolid, the density filter and KeepSolid; on the other elements up to 1530 N mm |
+| 29 | KeepSolid on a 2D plate 30 x 10: backward against the transpose of forward, inner-product test | gradient | 1.41e-15 | ≤ 1e-12 | pass | \|<J v, g> - <v, backward(x, g)>\| / \|<v, backward(x, g)>\|, with J v = forward(x + v) - forward(x); v and g drawn at random from [-1, 1] |
+| 29 | KeepSolid on a 2D plate 30 x 10: short optimisation, largest difference from 1 on the held elements | property of the design | 0 | ≤ 0 | pass | 36 of 300 elements held; 20 passes of MMA, filters KeepSolid, density filter (radius 1.5 mm), KeepSolid; mass limit 0.942 g, 40 % of the part |
+| 29 | KeepSolid on a 2D plate 30 x 10: short optimisation, relative excess of the mass over its bound | property of the design | -0.00113 | ≤ 0.001 | pass | mass 0.941 g; limits met (True,), the run's limit_tolerance 1e-3; stop reason passes |
+| 29 | KeepSolid on a 2D plate 30 x 10: short optimisation, mass of the held elements over the mass returned | property of the design | 0.3 | ≤ 1 | pass | held 0.283 g, returned density 0.941 g |
+| 29 | KeepSolid on a 3D block 16 x 6 x 4: forward, largest difference from 1 on the held elements and from x elsewhere | closed form | 0 | ≤ 0 | pass | 56 of 384 elements held; x drawn at random from [0.1, 0.9] |
+| 29 | KeepSolid on a 3D block 16 x 6 x 4: derivative of the compliance on the held elements, largest absolute value | gradient | 0 | ≤ 0 | pass | 56 of 384 elements held; the loop's derivative through KeepSolid, the density filter and KeepSolid; on the other elements up to 99 N mm |
+| 29 | KeepSolid on a 3D block 16 x 6 x 4: backward against the transpose of forward, inner-product test | gradient | 0 | ≤ 1e-12 | pass | \|<J v, g> - <v, backward(x, g)>\| / \|<v, backward(x, g)>\|, with J v = forward(x + v) - forward(x); v and g drawn at random from [-1, 1] |
+| 29 | KeepSolid on a 3D block 16 x 6 x 4: short optimisation, largest difference from 1 on the held elements | property of the design | 0 | ≤ 0 | pass | 56 of 384 elements held; 20 passes of MMA, filters KeepSolid, density filter (radius 1.5 mm), KeepSolid; mass limit 1.21 g, 40 % of the part |
+| 29 | KeepSolid on a 3D block 16 x 6 x 4: short optimisation, relative excess of the mass over its bound | property of the design | -0.000182 | ≤ 0.001 | pass | mass 1.21 g; limits met (True,), the run's limit_tolerance 1e-3; stop reason passes |
+| 29 | KeepSolid on a 3D block 16 x 6 x 4: short optimisation, mass of the held elements over the mass returned | property of the design | 0.365 | ≤ 1 | pass | held 0.44 g, returned density 1.21 g |
 
-81 passed, 0 failed, 0 not run.
+93 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 

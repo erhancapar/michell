@@ -219,6 +219,17 @@ with it, with the same numbers as the index arithmetic they replaced.
 one legacy VTK file, binary, a `STRUCTURED_POINTS` data set with the fields as `CELL_DATA`, which ParaView
 opens; it needs nothing beyond NumPy, and the bridge example writes one with `--vtk`.
 
+`michell.export.write_result(path, result)` writes a `Result` of `optimise` or a `StiffPart` of `stiff_part`
+as two files beside each other, so that a later step, another program or a report can read the outcome of a
+run: `<path>.npz` holds every array (`x`, `density`, each named design as `design_<name>`, and for a
+`StiffPart` also `filtered`, `nominal`, `first_step_nominal` and the member-size `thresholds`), bit for bit;
+`<path>.json` holds the rest as one flat object with `"format": 1`: the kind of result, the package version,
+the goal's and the limits' values, the bounds where the object holds them, `limits_met`, `feasible`,
+`stop_reason`, the thread count and the record of every pass. Numbers that are not finite are written as
+`null`, so the file is strict JSON. `read_result(path)` returns the JSON's content as a dictionary with the
+arrays under `"arrays"`; it does not rebuild the objects, whose responses and filters are not in the files.
+Either file is read by `numpy.load` or `json.load` alone, and the bridge example writes both with `--save`.
+
 ## Two small examples
 
 ```python

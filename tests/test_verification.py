@@ -104,7 +104,9 @@ def test_the_readme_3d_example_is_taken_from_the_3d_example_script():
         position = script.index(line, position) + 1
 
 
+# Four passes on the reduced grid do not meet the mass limit; the warning that says so is expected here.
 @pytest.mark.slow
+@pytest.mark.filterwarnings("ignore::michell.LimitNotMet")
 def test_the_readme_3d_example_runs(capsys):
     block = readme_3d_block()
     small = block.replace("nx, ny, nz = 64, 32, 32", "nx, ny, nz = 16, 8, 8").replace("passes=120,", "passes=4,")

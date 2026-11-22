@@ -25,7 +25,9 @@ def run_small(threads=1, **settings):
     part = small_bridge(threads)
     settings = {"schedule": SHORT, "passes_per_bound": 2, "second_step_passes": 3, **settings}
     outside = {"x-": "closed", "x+": "closed", "y-": "empty", "y+": "empty", "z-": "empty", "z+": "empty"}
-    return part, stiff_part(part.problem, part.mass_g, 2.0, part.keep_solid, outside=outside, **settings)
+    # The member size of 2 elements keeps these runs small; stiff_part warns that it is under five.
+    with pytest.warns(michell.GridTooCoarse):
+        return part, stiff_part(part.problem, part.mass_g, 2.0, part.keep_solid, outside=outside, **settings)
 
 
 def test_the_recipe_runs_and_its_fields_agree():
@@ -78,10 +80,11 @@ def test_the_recipe_runs_on_a_2d_grid():
     loads = np.zeros(grid.n_dofs)
     loads[2 * grid.node(16, 0) + 1] = -1.0
     problem = michell.Problem(grid, held, michell.Material(1.0, 0.3, 1000.0), [michell.LoadCase("tip", loads)])
-    outcome = stiff_part(
-        problem, 0.4 * 16 * 8, 2.0, outside={"x+": "empty", "y-": "empty", "y+": "empty"},
-        schedule=((1.0, 2), (32.0, 2)), second_step_passes=2,
-    )  # fmt: skip
+    with pytest.warns(michell.GridTooCoarse):  # a member size of 2 elements, as in run_small
+        outcome = stiff_part(
+            problem, 0.4 * 16 * 8, 2.0, outside={"x+": "empty", "y-": "empty", "y+": "empty"},
+            schedule=((1.0, 2), (32.0, 2)), second_step_passes=2,
+        )  # fmt: skip
     assert outcome.nominal.shape == (grid.n_elements,) and len(outcome.passes) == 6
 
 
@@ -103,7 +106,8 @@ def test_an_engine_error_names_its_step_and_pass():
         def backward(self, x, grad):
             return grad
 
-    with pytest.raises(michell.EngineError) as error:
+    # The member size of 2 elements gives GridTooCoarse before the first pass, as in run_small.
+    with pytest.warns(michell.GridTooCoarse), pytest.raises(michell.EngineError) as error:
         stiff_part(
             part.problem, part.mass_g, 2.0, part.keep_solid, [Failing()], schedule=SHORT, passes_per_bound=2,
             second_step_passes=3,

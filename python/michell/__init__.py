@@ -26,7 +26,10 @@ The package holds:
   warning ``stiff_part`` gives when the member size is fewer than five elements;
 - ``michell.select``: nodes, elements and degrees of freedom picked by position in mm and by face, the
   ``held`` mask of a problem and the load vector of a force spread over nodes, without index arithmetic;
-- ``michell.export``: ``write_vtk``, per-element fields written as a legacy VTK file for ParaView;
+- ``michell.export``: ``write_vtk``, per-element fields written as a legacy VTK file for ParaView, and
+  ``write_result`` and ``read_result``, a ``Result`` or a ``StiffPart`` written to an ``.npz`` file (the
+  arrays) and a ``.json`` file (the rest: values, limits met, stop reason, the record of every pass) and read
+  back as a plain dictionary;
 - ``dot``, the dot product of two vectors in the engine, for responses (with the OpenBLAS build that NumPy
   ships, ``a @ b`` runs long products on every core);
 - ``EngineError``, the error every engine call raises; the checks written in Python raise it too, with
@@ -62,7 +65,7 @@ from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, LimitNotMet, Pass, Result, optimise
 from michell.problem import LoadCase, Material, Problem
 from michell import export, recipes, select
-from michell.export import write_vtk
+from michell.export import read_result, write_result, write_vtk
 from michell.recipes import GridTooCoarse, RecipePass, StiffPart, member_size_bound, stiff_part
 from michell.responses import Compliance, Mass
 from michell.row import Row
@@ -115,9 +118,11 @@ __all__ = [
     "member_threshold",
     "on",
     "optimise",
+    "read_result",
     "recipes",
     "robust_designs",
     "select",
     "stiff_part",
+    "write_result",
     "write_vtk",
 ]

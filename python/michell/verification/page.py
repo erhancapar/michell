@@ -21,7 +21,8 @@ mass, their discreteness (the measure of Sigmund, Struct. Multidisc. Optim. 33, 
 compliances, and checks the minimum member size as a limit (Zhou, Lazarov, Wang and Sigmund, Comput. Methods
 Appl. Mech. Engrg. 293, 2015) on thin and thick members and on an optimised beam, whose members it measures by
 a morphological opening; and it runs the two-step procedure of `michell.recipes` (the robust formulation,
-then the member-size limit) on a 3D bridge and measures the design it returns. The measure, the set-up and the limit of every row were fixed before its first result
+then the member-size limit) on a 3D bridge and measures the design it returns, and checks that elements held solid
+(`KeepSolid`) stay solid and carry no derivative, also through a short optimisation. The measure, the set-up and the limit of every row were fixed before its first result
 was computed, with one exception, stated in its note: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
 were set after trial runs. Every limit is an upper bound on the measured value. Measured values are rounded

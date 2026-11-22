@@ -25,13 +25,13 @@ def test_row_25_density_filter_3d_against_a_direct_computation():
 
 def test_row_25_member_size_derivative_in_2d_and_3d():
     rows = verification.row_25_member_size_gradients()
-    assert len(rows) == 2
+    assert len(rows) == 3
     assert_rows_pass(rows)
 
 
 def test_row_26_member_size_tells_thin_from_thick():
     rows = verification.row_26_thin_and_thick()
-    assert len(rows) == 8
+    assert len(rows) == 10
     assert_rows_pass(rows)
 
 

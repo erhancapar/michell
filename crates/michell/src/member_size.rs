@@ -15,7 +15,9 @@
 //!
 //!   g = (1/n) sum_e I_e [min(rho~_e - eta_e, 0)]^2  <=  eps,
 //!
-//! with n the number of elements. Here the sum and n run over the active elements. The paper relaxes the
+//! with n the number of elements. Here the sum and n run over the active elements, and eta_e is given per
+//! element (the paper's eta_e is one number for the whole domain): an element whose threshold is 0 adds
+//! nothing, since rho~ is never negative. The paper relaxes the
 //! equality g = 0 of eq. 10 to g <= eps (eq. 12), because with a finite c the indicator is not exactly 0
 //! away from the ridges; it gives eps for each filter radius in its figure 8.
 //!
@@ -61,8 +63,8 @@ pub struct MemberSize {
     active: Vec<bool>,
     /// The projection that gives rho_bar from the filtered field (eq. 7).
     projection: Projection,
-    /// eta_e: the value the filtered field must reach on the ridge of every solid member.
-    threshold: f64,
+    /// eta_e, one per element: the value the filtered field must reach on the ridge of every solid member.
+    thresholds: Vec<f64>,
     /// c of the indicator (eq. 8).
     c: f64,
 }
@@ -72,7 +74,7 @@ impl MemberSize {
     pub fn on_grid2d(
         grid: &Grid2d,
         projection: Projection,
-        threshold: f64,
+        thresholds: Vec<f64>,
         c: f64,
     ) -> Result<MemberSize, EngineError> {
         MemberSize::new(
@@ -81,7 +83,7 @@ impl MemberSize {
             1,
             grid.active().to_vec(),
             projection,
-            threshold,
+            thresholds,
             c,
         )
     }
@@ -90,7 +92,7 @@ impl MemberSize {
     pub fn on_grid3d(
         grid: &Grid3d,
         projection: Projection,
-        threshold: f64,
+        thresholds: Vec<f64>,
         c: f64,
     ) -> Result<MemberSize, EngineError> {
         MemberSize::new(
@@ -99,7 +101,7 @@ impl MemberSize {
             grid.nz(),
             grid.active().to_vec(),
             projection,
-            threshold,
+            thresholds,
             c,
         )
     }
@@ -110,14 +112,25 @@ impl MemberSize {
         nz: usize,
         active: Vec<bool>,
         projection: Projection,
-        threshold: f64,
+        thresholds: Vec<f64>,
         c: f64,
     ) -> Result<MemberSize, EngineError> {
-        if !(threshold.is_finite() && (0.0..=1.0).contains(&threshold)) {
-            return Err(
-                EngineError::invalid_input("the threshold eta_e must lie between 0 and 1")
-                    .with_number("threshold", threshold),
-            );
+        if thresholds.len() != active.len() {
+            return Err(EngineError::invalid_input(
+                "the thresholds eta_e need one entry per element",
+            )
+            .with_integer("expected", active.len())
+            .with_integer("got", thresholds.len()));
+        }
+        if let Some(element) = thresholds
+            .iter()
+            .position(|t| !(t.is_finite() && (0.0..=1.0).contains(t)))
+        {
+            return Err(EngineError::invalid_input(
+                "each threshold eta_e must lie between 0 and 1",
+            )
+            .with_integer("element", element)
+            .with_number("threshold", thresholds[element]));
         }
         if !(c.is_finite() && c >= 0.0) {
             return Err(
@@ -130,13 +143,13 @@ impl MemberSize {
             nz,
             active,
             projection,
-            threshold,
+            thresholds,
             c,
         })
     }
 
-    pub fn threshold(&self) -> f64 {
-        self.threshold
+    pub fn thresholds(&self) -> &[f64] {
+        &self.thresholds
     }
 
     pub fn c(&self) -> f64 {
@@ -163,7 +176,7 @@ impl MemberSize {
                 continue;
             }
             let value = filtered[element];
-            let m = (value - self.threshold).min(0.0);
+            let m = (value - self.thresholds[element]).min(0.0);
             if m == 0.0 {
                 continue;
             }
@@ -272,7 +285,7 @@ mod tests {
         // No slope anywhere: I = P(v), g = P(v) (v - eta_e)^2 for v below eta_e, 0 at or above it.
         let grid = Grid3d::full(5, 4, 3, 2.0).unwrap();
         let projection = Projection::new(8.0, 0.5).unwrap();
-        let constraint = MemberSize::on_grid3d(&grid, projection, 0.8, 4096.0).unwrap();
+        let constraint = MemberSize::on_grid3d(&grid, projection, vec![0.8; 60], 4096.0).unwrap();
         let (g, gradient) = constraint.evaluate(&[0.6; 60]).unwrap();
         let expected = projection.value(0.6) * 0.2 * 0.2;
         assert!((g - expected).abs() < 1e-15);
@@ -280,6 +293,36 @@ mod tests {
         let expected_sum = projection.derivative(0.6) * 0.04 - 2.0 * projection.value(0.6) * 0.2;
         assert!((sum - expected_sum).abs() < 1e-13);
         assert_eq!(constraint.evaluate(&[0.85; 60]).unwrap().0, 0.0);
+    }
+
+    #[test]
+    fn each_element_is_judged_against_its_own_threshold() {
+        // A uniform field 0.6 with the threshold 0.8 on every element but 0 on a third of them: those add
+        // nothing, so g is two thirds of the value with 0.8 everywhere, and their derivative is 0.
+        let grid = Grid3d::full(5, 4, 3, 1.0).unwrap();
+        let projection = Projection::new(8.0, 0.5).unwrap();
+        let mut thresholds = vec![0.8; 60];
+        for t in thresholds.iter_mut().step_by(3) {
+            *t = 0.0;
+        }
+        let some = MemberSize::on_grid3d(&grid, projection, thresholds, 4096.0).unwrap();
+        let every = MemberSize::on_grid3d(&grid, projection, vec![0.8; 60], 4096.0).unwrap();
+        let (g, gradient) = some.evaluate(&[0.6; 60]).unwrap();
+        assert!((g - 2.0 / 3.0 * every.evaluate(&[0.6; 60]).unwrap().0).abs() < 1e-15);
+        assert!(gradient.iter().step_by(3).all(|&d| d == 0.0));
+        assert!(gradient.iter().skip(1).step_by(3).all(|&d| d != 0.0));
+        let mut thresholds = smooth_field(9, 7, 5);
+        for t in thresholds.iter_mut() {
+            *t = (*t + 0.1).min(1.0);
+        }
+        let varying = MemberSize::on_grid3d(
+            &Grid3d::full(9, 7, 5, 1.0).unwrap(),
+            projection,
+            thresholds,
+            16.0,
+        )
+        .unwrap();
+        assert!(derivative_error(&varying, &smooth_field(9, 7, 5)) < 1e-6);
     }
 
     #[test]
@@ -295,13 +338,15 @@ mod tests {
             }
         }
         let solid = Grid3d::new(nx, ny, nz, 1.0, active).unwrap();
-        let constraint = MemberSize::on_grid3d(&solid, projection, 0.7, 16.0).unwrap();
+        let constraint =
+            MemberSize::on_grid3d(&solid, projection, vec![0.7; nx * ny * nz], 16.0).unwrap();
         assert!(derivative_error(&constraint, &smooth_field(nx, ny, nz)) < 1e-6);
 
         let mut active = vec![true; nx * ny];
         active[4 + nx * 3] = false;
         let plane = Grid2d::new(nx, ny, 1.0, 1.0, active).unwrap();
-        let constraint = MemberSize::on_grid2d(&plane, projection, 0.7, 16.0).unwrap();
+        let constraint =
+            MemberSize::on_grid2d(&plane, projection, vec![0.7; nx * ny], 16.0).unwrap();
         assert!(derivative_error(&constraint, &smooth_field(nx, ny, 1)) < 1e-6);
     }
 
@@ -311,8 +356,8 @@ mod tests {
         let plane = Grid2d::full(8, 6, 1.0, 1.0).unwrap();
         let flat = Grid3d::full(8, 6, 1, 1.0).unwrap();
         let field = smooth_field(8, 6, 1);
-        let a = MemberSize::on_grid2d(&plane, projection, 0.75, 81.0).unwrap();
-        let b = MemberSize::on_grid3d(&flat, projection, 0.75, 81.0).unwrap();
+        let a = MemberSize::on_grid2d(&plane, projection, vec![0.75; 48], 81.0).unwrap();
+        let b = MemberSize::on_grid3d(&flat, projection, vec![0.75; 48], 81.0).unwrap();
         assert_eq!(a.evaluate(&field).unwrap(), b.evaluate(&field).unwrap());
     }
 
@@ -321,7 +366,7 @@ mod tests {
         let projection = Projection::new(8.0, 0.5).unwrap();
         // A row of four with the last outside: element 0 looks forward, 1 both ways, 2 backward.
         let grid = Grid2d::new(4, 1, 1.0, 1.0, vec![true, true, true, false]).unwrap();
-        let constraint = MemberSize::on_grid2d(&grid, projection, 1.0, 1.0).unwrap();
+        let constraint = MemberSize::on_grid2d(&grid, projection, vec![1.0; 4], 1.0).unwrap();
         assert_eq!(constraint.differences(0)[0], Some((1, 0, 1.0)));
         assert_eq!(constraint.differences(1)[0], Some((2, 0, 0.5)));
         assert_eq!(constraint.differences(2)[0], Some((2, 1, 1.0)));
@@ -333,10 +378,14 @@ mod tests {
     fn wrong_input_is_refused() {
         let projection = Projection::new(8.0, 0.5).unwrap();
         let grid = Grid2d::full(3, 2, 1.0, 1.0).unwrap();
-        assert!(MemberSize::on_grid2d(&grid, projection, 1.2, 1.0).is_err());
-        assert!(MemberSize::on_grid2d(&grid, projection, 0.8, -1.0).is_err());
-        assert!(MemberSize::on_grid2d(&grid, projection, 0.8, f64::NAN).is_err());
-        let constraint = MemberSize::on_grid2d(&grid, projection, 0.8, 1.0).unwrap();
+        assert!(MemberSize::on_grid2d(&grid, projection, vec![1.2; 6], 1.0).is_err());
+        assert!(MemberSize::on_grid2d(&grid, projection, vec![0.8; 6], -1.0).is_err());
+        assert!(MemberSize::on_grid2d(&grid, projection, vec![0.8; 6], f64::NAN).is_err());
+        assert!(MemberSize::on_grid2d(&grid, projection, vec![0.8; 5], 1.0).is_err());
+        let mut one_wrong = vec![0.8; 6];
+        one_wrong[3] = -0.1;
+        assert!(MemberSize::on_grid2d(&grid, projection, one_wrong, 1.0).is_err());
+        let constraint = MemberSize::on_grid2d(&grid, projection, vec![0.8; 6], 1.0).unwrap();
         assert!(constraint.evaluate(&[0.5; 5]).is_err());
         assert!(
             constraint

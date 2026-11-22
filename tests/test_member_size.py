@@ -9,6 +9,7 @@ import pytest
 import michell
 from michell.gradient_check import check_gradient, small_problem
 from michell.mma import limit_scale
+from michell.verification.member_size_rows import held_wall_part
 
 
 def test_the_density_filter_takes_a_3d_grid_and_threads():
@@ -220,3 +221,102 @@ def test_keep_solid_refuses_bad_masks_and_holds_its_elements_in_the_loop():
     x = np.full(12, 0.3)
     assert keep.forward(x)[11] == 1.0 and keep.forward(x)[0] == 0.3
     assert keep.backward(x, np.ones(12))[11] == 0.0
+
+
+# A part with empty faces, a hole (a block of inactive elements, empty to the filter) and a thin wall of
+# elements held solid beside the hole: `held_wall_part` of the verification rows. Radius 3 element sides,
+# threshold for a size of 3 (0.8125 in 3D), beta 8.
+
+
+def held_wall_limit(dimension, keep):
+    grid, wall = held_wall_part(dimension)
+    density_filter = michell.DensityFilter(grid, 3.0, outside="empty", inactive="empty")
+    threshold = michell.member_threshold(density_filter, 3.0)
+    keep_solid = michell.KeepSolid(wall, grid) if keep else None
+    constraint = michell.MemberSize(density_filter, michell.Projection(8.0), threshold, keep_solid=keep_solid)
+    return grid, wall, density_filter, constraint
+
+
+@pytest.mark.parametrize("dimension", [2, 3])
+def test_the_fully_solid_part_meets_the_limit_exactly(dimension):
+    for keep in (False, True):
+        grid, wall, density_filter, constraint = held_wall_limit(dimension, keep)
+        assert constraint.thresholds is None
+        solid = density_filter.forward(grid.active)
+        assert constraint.evaluate(grid, solid)[0] == 0.0
+        reach = density_filter.forward(grid.active)
+        expected = np.minimum(constraint.threshold, reach)
+        if keep:
+            expected[wall] = 0.0
+        assert np.array_equal(constraint.thresholds, expected)
+        assert not constraint.thresholds.flags.writeable
+    # Not vacuous: the fully solid part falls short of the threshold somewhere, and with that one threshold
+    # on every element it would not meet the limit.
+    active = grid.active == 1.0
+    assert (reach[active] < constraint.threshold).sum() > 0
+    one_threshold = np.full(grid.n_elements, constraint.threshold)
+    assert michell._engine.member_size(grid, reach, constraint.projection, one_threshold, constraint.c)[0] > 0.0
+
+
+@pytest.mark.parametrize("dimension", [2, 3])
+def test_a_design_void_but_for_the_held_wall_is_judged_unless_the_wall_is_held(dimension):
+    grid, wall, density_filter, constraint = held_wall_limit(dimension, keep=False)
+    assert constraint.evaluate(grid, density_filter.forward(wall.astype(float)))[0] > 0.0
+
+
+@pytest.mark.parametrize("dimension", [2, 3])
+def test_holding_the_wall_leaves_only_what_its_neighbours_take_from_it(dimension):
+    # The design elements next to a held wall take filtered density from it and are still judged, so a design
+    # that is void but for the wall keeps a small g: less than with the wall judged, and negligible at the
+    # sharp projection the limit is used with (beta 32).
+    grid, wall, density_filter, held = held_wall_limit(dimension, keep=True)
+    wall_only = density_filter.forward(wall.astype(float))
+    g_held = held.evaluate(grid, wall_only)[0]
+    grid_judged, wall_judged, filter_judged, judged = held_wall_limit(dimension, keep=False)
+    g_judged = judged.evaluate(grid_judged, filter_judged.forward(wall_judged.astype(float)))[0]
+    assert 0.0 < g_held < g_judged
+    sharp = michell.MemberSize(
+        density_filter, michell.Projection(32.0), held.threshold, keep_solid=michell.KeepSolid(wall, grid)
+    )
+    assert sharp.evaluate(grid, wall_only)[0] < 1e-9
+
+
+def test_closed_faces_leave_the_threshold_unchanged_and_bad_arguments_are_refused():
+    grid = michell.Grid3d(6, 5, 4, 1.0)
+    constraint = michell.MemberSize(michell.DensityFilter(grid, 2.0), michell.Projection(8.0), 0.8)
+    constraint.evaluate(grid, np.full(grid.n_elements, 0.5))
+    assert np.array_equal(constraint.thresholds, np.full(grid.n_elements, 0.8)) and constraint.threshold == 0.8
+    density_filter, projection = michell.DensityFilter(grid, 2.0), michell.Projection(8.0)
+    for threshold in (1.2, -0.1, float("nan")):
+        with pytest.raises(michell.errors.InvalidValue):
+            michell.MemberSize(density_filter, projection, threshold)
+    for keep_solid in ("wall", np.zeros(grid.n_elements), np.zeros((2, 60), dtype=bool)):
+        with pytest.raises(michell.errors.InvalidType):
+            michell.MemberSize(density_filter, projection, 0.8, keep_solid=keep_solid)
+    short = np.zeros(grid.n_elements - 1, dtype=bool)
+    short = michell.MemberSize(density_filter, projection, 0.8, keep_solid=short)
+    with pytest.raises(michell.errors.InvalidValue, match="keep_solid"):
+        short.evaluate(grid, np.full(grid.n_elements, 0.5))
+
+
+def test_near_a_flat_empty_face_the_reach_falls_below_the_threshold_only_in_a_shallow_layer():
+    # At the depth t R below a flat empty face of a solid half-space the 3D cone filter reaches
+    # 1/2 + member_threshold(2 t R) / 2: the share of the ball's weight on the solid side. It equals the
+    # threshold at size = R, 13/16, at t = 0.347, shallower than the ridge of a member R thick (t = 0.5). On
+    # the grid (R = 12 element sides, the face z- empty, the other faces closed and the column in the middle,
+    # where the ball is not cut off), the elements with their centre less deep than 0.347 R are those below
+    # the threshold.
+    radius = 12
+    side, depth = 2 * radius + 1, 3 * radius
+    grid = michell.Grid3d(side, side, depth, 1.0)
+    density_filter = michell.DensityFilter(grid, float(radius), threads=4, outside={"z-": "empty"})
+    threshold = michell.member_threshold(density_filter, float(radius))
+    low, high = 0.0, 1.0
+    for _ in range(60):
+        t = (low + high) / 2
+        reach = 0.5 + michell.member_threshold(density_filter, 2 * t * radius) / 2
+        low, high = (t, high) if reach < threshold else (low, t)
+    assert threshold == 0.8125 and low == pytest.approx(0.347, abs=5e-4)
+    column = density_filter.forward(np.ones(grid.n_elements)).reshape(depth, side, side)[:, radius, radius]
+    below = np.flatnonzero(column < threshold)
+    assert np.array_equal(below, np.arange(int(np.ceil(low * radius - 0.5))))

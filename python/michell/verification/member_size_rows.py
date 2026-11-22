@@ -18,6 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from michell._engine import dot
+from michell._engine import member_size as engine_member_size
 from michell.analysis import Grid
 from michell.analysis3d import Grid3d
 from michell.filters import DensityFilter, KeepSolid, Projection
@@ -207,6 +208,28 @@ def row_25_filter() -> list[Row]:
 # the field's slopes of about 0.05 per element, c |grad|^2 is of order 0.1, and the term of the derivative
 # that runs through the neighbours' gradients is exercised. Step 1e-6. 3D: 9 x 7 x 6 elements with an
 # inactive block of 2 x 2 x 2; 2D: 16 x 10 elements with an inactive block of 3 x 2.
+# A third line, the same limit and measure, on the 3D part with a hole and a held wall of `held_wall_part`
+# (every face empty, the hole empty to the filter) with `keep_solid`, so that the thresholds are capped by
+# the reach of the fully solid part near the faces and the hole, and 0 on the wall.
+
+
+def held_wall_part(dimension: int) -> tuple[Grid3d | Grid, np.ndarray]:
+    """A small part with a hole and a thin wall beside it, for the member-size limit with ``keep_solid``:
+    20 x 12 x 10 elements of side 1 mm (3D) or 20 x 12 (2D); the hole is an inactive block of 4 x 4 x 4
+    (4 x 4) elements, and the wall is the layer of 1 element next to the hole on its x+ side, as tall and
+    as deep as the hole. Returns the grid and the wall as a boolean mask. Meant for a density filter whose
+    faces and inactive elements are all empty."""
+    if dimension == 3:
+        active = np.ones((10, 12, 20), dtype=bool)
+        active[3:7, 4:8, 8:12] = False
+        wall = np.zeros_like(active)
+        wall[3:7, 4:8, 12] = True
+        return Grid3d(20, 12, 10, 1.0, active=active.ravel()), wall.ravel()
+    active = np.ones((12, 20), dtype=bool)
+    active[4:8, 8:12] = False
+    wall = np.zeros_like(active)
+    wall[4:8, 12] = True
+    return Grid(20, 12, 1.0, 1.0, active=active.ravel()), wall.ravel()
 
 
 def row_25_member_size_gradients() -> list[Row]:
@@ -216,11 +239,20 @@ def row_25_member_size_gradients() -> list[Row]:
     active_3d[2:4, 3:5, 4:6] = False
     active_2d = np.ones((10, 16), dtype=bool)
     active_2d[4:6, 6:9] = False
-    for label, grid in (("3D", Grid3d(9, 7, 6, 1.0, active=active_3d.ravel())), ("2D", Grid(16, 10, 1.0, 1.0, active=active_2d.ravel()))):
+    part, wall = held_wall_part(3)
+    cases = (
+        ("3D grid", Grid3d(9, 7, 6, 1.0, active=active_3d.ravel()), None),
+        ("2D grid", Grid(16, 10, 1.0, 1.0, active=active_2d.ravel()), None),
+        ("3D part with a hole and a held wall, keep_solid", part, wall),
+    )
+    for label, grid, held in cases:
         radius = 2.5
-        density_filter = DensityFilter(grid, radius)
         projection = Projection(8.0, 0.5)
-        constraint = MemberSize(density_filter, projection, 0.6)
+        if held is None:
+            density_filter = DensityFilter(grid, radius)
+        else:
+            density_filter = DensityFilter(grid, radius, outside="empty", inactive="empty")
+        constraint = MemberSize(density_filter, projection, 0.6, keep_solid=held)
         filtered = density_filter.forward(random.uniform(0.0, 1.0, grid.n_elements))
         _, derivative = constraint.evaluate(grid, filtered)
         elements = np.flatnonzero(grid.active)
@@ -234,17 +266,24 @@ def row_25_member_size_gradients() -> list[Row]:
         measured = float(np.abs(differences - derivative[elements]).max() / np.abs(derivative[elements]).max())
         rho_bar = projection.forward(filtered)
         indicator = rho_bar * np.exp(-constraint.c * squared_gradient(grid, filtered))
-        working = int(((filtered < 0.6) & (indicator > 1e-3) & (grid.active == 1.0)).sum())
+        working = int(((filtered < constraint.thresholds) & (indicator > 1e-3) & (grid.active == 1.0)).sum())
+        where = ""
+        if held is not None:
+            capped = int(((constraint.thresholds < 0.6) & (grid.active == 1.0) & ~held).sum())
+            where = (
+                f"; every face and the hole empty to the filter, {capped} design elements with the threshold capped "
+                f"by the reach of the fully solid part, {int(held.sum())} held elements with the threshold 0"
+            )
         rows.append(
             checked(
                 25,
-                f"Member-size limit ({label} grid): derivative against central differences",
+                f"Member-size limit ({label}): derivative against central differences",
                 GRADIENT,
                 measured,
                 1e-5,
                 f"{len(elements)} active elements, smooth random filtered field; {working} of them below the "
                 f"threshold with an indicator above 1e-3; radius 2.5 element sides, c = {g3(constraint.c)}, "
-                f"beta 8, threshold 0.6; step 1e-6",
+                f"beta 8, threshold 0.6{where}; step 1e-6",
             )
         )
     return rows
@@ -292,6 +331,14 @@ def squared_gradient(grid, field: np.ndarray) -> np.ndarray:
 # layers of the grid, the face it lies on (z- for the plate, y- for the strip) is empty (`outside`), the
 # other faces are closed, and R of empty space follows on its other side. A closed face there would act as
 # a mirror and show the limit a member twice as thick.
+# Two more limits (3D) on a part that also has a region thinner than the size and a held wall, every face
+# of the grid and every inactive element empty to the filter, `keep_solid` on the wall:
+# - a plate 0.75 times the size thick in the thick part gives g at least 100 eps (measured as above);
+# - the fully solid part gives g at most eps.
+# The part (`thin_region_part`): 28 x 16 x 22 elements; the thick part is x below 16, all active (the plate
+# lies there as above, R of empty space on each side of it in z); for x from 16 to 26 only the 4 layers z 9
+# to 12 are active, a flange half the size thick between two empty regions; x 26 and 27 are a wall 2
+# elements thick over the whole height, held solid. With the plate, the flange is solid and the wall too.
 
 ROW_26_SIZE = 8
 ROW_26_EPS = EPS_OF_FIGURE_8[8]
@@ -318,6 +365,23 @@ def member_value(dimension: int, thickness: int, against_empty_face: bool = Fals
     constraint = MemberSize(density_filter, Projection(32.0, 0.5), threshold)
     value, _ = constraint.evaluate(grid, density_filter.forward(x.ravel()))
     return float(value), threshold
+
+
+def thin_region_part() -> tuple[Grid3d, np.ndarray, np.ndarray]:
+    """The part of the last two lines of row 26: the grid, the held wall and the design with the plate 0.75
+    times the size thick in the thick part (see the set-up above `member_value`)."""
+    size = ROW_26_SIZE
+    nx, ny, nz = 28, 16, 2 * size + round(0.75 * size)
+    active = np.ones((nz, ny, nx), dtype=bool)
+    active[:, :, 16:26] = False
+    active[9:13, :, 16:26] = True
+    wall = np.zeros_like(active)
+    wall[:, :, 26:] = True
+    x = np.zeros((nz, ny, nx))
+    x[size : size + round(0.75 * size), :, :16] = 1.0
+    x[9:13, :, 16:26] = 1.0
+    x[wall] = 1.0
+    return Grid3d(nx, ny, nz, 1.0, active=active.ravel()), wall.ravel(), x.ravel()
 
 
 def row_26_thin_and_thick() -> list[Row]:
@@ -354,6 +418,45 @@ def row_26_thin_and_thick() -> list[Row]:
                 f"measured 100 eps / g, g = {g3(thin)}; {set_up}",
             )
         )
+    grid, wall, x = thin_region_part()
+    density_filter = DensityFilter(grid, float(ROW_26_SIZE), outside="empty", inactive="empty")
+    threshold = member_threshold(density_filter, float(ROW_26_SIZE))
+    constraint = MemberSize(density_filter, Projection(32.0, 0.5), threshold, keep_solid=wall)
+    plate, _ = constraint.evaluate(grid, density_filter.forward(x))
+    reach = density_filter.forward(grid.active)
+    solid, _ = constraint.evaluate(grid, reach)
+    one_threshold, _ = engine_member_size(
+        grid, reach, constraint.projection, np.full(grid.n_elements, threshold), constraint.c
+    )
+    capped = int(((constraint.thresholds < threshold) & (grid.active == 1.0) & ~wall).sum())
+    set_up = (
+        f"28 x 16 x 22 elements: the thick part 16 x 16 x 22, a flange 4 elements thick and 10 long, a wall 2 "
+        f"thick held solid with keep_solid; every face and the inactive elements empty to the filter; "
+        f"{capped} design elements with the threshold capped by the reach of the fully solid part; size 8 "
+        f"element sides, R = 8, beta 32, eta_e = {g3(threshold)} from member_threshold, c = 4096, eps = {g3(eps)}"
+    )
+    rows.append(
+        checked(
+            26,
+            "Member-size limit, 3D plate 0.75 times the size thick in the thick part of a part with a thin region "
+            "and a held wall: g at least 100 eps",
+            DESIGN_PROPERTY,
+            100 * eps / plate if plate > 0 else float("inf"),
+            1.0,
+            f"measured 100 eps / g, g = {g3(plate)}; the flange and the wall solid too; {set_up}",
+        )
+    )
+    rows.append(
+        checked(
+            26,
+            "Member-size limit, the fully solid part with a thin region and a held wall: g at most eps",
+            DESIGN_PROPERTY,
+            solid,
+            eps,
+            f"g = {g3(solid)} (with one threshold {g3(threshold)} on every element and no element held, the "
+            f"fully solid part would give {g3(one_threshold)}, {g3(one_threshold / eps)} eps); {set_up}",
+        )
+    )
     return rows
 
 
@@ -560,6 +663,7 @@ def row_27_member_size_mbb() -> list[Row]:
 
 __all__ = [
     "EPS_OF_FIGURE_8",
+    "held_wall_part",
     "row_25_filter",
     "row_25_member_size_gradients",
     "row_26_thin_and_thick",

@@ -171,6 +171,12 @@ below the values the limit takes when it is switched on (of the order of 1e-4), 
 set to its value at the switch (see "Goal, limits and the optimiser"). `examples/mbb_beam_member_size.py`
 writes the whole procedure out, and verification row 27 runs it.
 
+- **Attainable on any part.** The paper's box is all design space; on a part the held solid and the regions
+  thinner than the asked size could make the bound impossible. The threshold is therefore one per element:
+  capped by `reach`, the filtered field of the fully solid part, and 0 on the elements given as
+  `keep_solid` (a `KeepSolid` or a boolean mask), which are not judged. The fully solid part gives g = 0
+  exactly, whatever its shape (rows 25 and 26). In a region thinner than the asked size the limit then asks
+  that the solid fill the part locally, which is stricter than a member of the asked width.
 - **Supported with the density filter**, the cone filter of the paper (rows 25 to 27).
 - **Experimental with the Helmholtz filter** (`MemberSize.experimental` is then true): the paper derives
   $c$ and its values of $\varepsilon$ for the cone filter only, and no row checks the pair.

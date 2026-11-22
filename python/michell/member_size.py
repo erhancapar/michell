@@ -13,6 +13,29 @@ computed in the engine (``crates/michell/src/member_size.rs``, where the gradien
 described): ``rho_bar`` is the projection of the filtered field, the gradient is taken per element side
 between neighbouring active elements, and n is the number of active elements.
 
+On a part. The paper states the constraint, with one threshold, for a box that is all design space. On a
+part it can be impossible to meet: the solid the user holds fixed counts against it, and where the part
+itself is thinner than the asked size (between two empty faces, beside an empty hole) no design reaches the
+threshold. The threshold is therefore given per element, built from the asked one by two rules, and the
+fully solid part gives g = 0 exactly, whatever its shape, so that the bound can always be met:
+
+- The threshold is capped by what the part can reach: ``eta_e = min(threshold, reach_e)``, where ``reach``
+  is the filtered field of the fully solid part. The filter is linear with weights that are not negative,
+  so no design gives an element more than its reach. With closed faces and closed inactive elements the
+  reach is 1 everywhere and nothing changes.
+- Elements the user holds solid (``keep_solid``) are not judged, ``eta_e = 0``: the optimiser cannot change
+  them. The design elements attached to them are judged as before, so they still take filtered density
+  from the held solid; a void design next to a held wall gives a small g, not 0 (1.6e-5 for a wall one
+  element thick at beta 8 and R = 3 elements, 1e-12 to 1e-11 at beta 32).
+
+What the cap costs. In a region of the part thinner than the asked size the limit asks that the solid
+fill the part locally, to within the filter radius, which is stricter than asking for a member of the
+asked width. Near a flat empty face of a thick part it changes nothing for members: at the depth d below
+such a face the fully solid part reaches ``1/2 + member_threshold(2 d) / 2``, which is below the threshold
+only in a layer shallower than half the asked size (for the cone filter in 3D at the size R, threshold
+0.8125, the layer is 0.347 R deep), while the ridge of a member at least the asked size thick lies at
+least half the size deep.
+
 How it is used. The limit reads the filtered field, so it sits on a design whose own filter chain is
 empty, beside the design the goal reads:
 
@@ -56,7 +79,7 @@ import numpy as np
 
 from michell import _engine
 from michell.errors import InvalidType, InvalidValue
-from michell.filters import DensityFilter, HelmholtzFilter, Projection
+from michell.filters import DensityFilter, HelmholtzFilter, KeepSolid, Projection
 from michell.modules import Partials
 from michell.row import Row, compared
 
@@ -108,17 +131,34 @@ def member_threshold(filter, size_mm: float) -> float:
 
 
 class MemberSize:
-    """The minimum member size as a limit (Zhou, Lazarov, Wang and Sigmund 2015, eqs. 8, 10 and 12):
+    """The minimum member size as a limit (Zhou, Lazarov, Wang and Sigmund 2015, eqs. 8, 10 and 12), with one
+    threshold per element:
 
-        g = (1/n) sum_e I_e [min(rho~_e - threshold, 0)]^2,     I_e = P(rho~_e) exp(-c |grad rho~|_e^2),
+        g = (1/n) sum_e I_e [min(rho~_e - eta_e, 0)]^2,     I_e = P(rho~_e) exp(-c |grad rho~|_e^2),
 
     a response that reads no physics and is meant as a limit ``g <= eps`` on a design whose filter chain is
     empty, so that ``rho~`` is the filtered field (see the module's docstring for an example).
 
-    ``MemberSize(filter, projection, threshold, c=None)``: ``filter`` is the filter that makes the filtered
-    field (its radius R and element size h give the default ``c = (R / h)^4``, the paper's choice, with the
-    gradient taken per element side); ``projection`` is the projection P of the design the goal reads;
-    ``threshold`` is eta_e, usually ``member_threshold(filter, size_mm)``. The value is dimensionless.
+    ``MemberSize(filter, projection, threshold, c=None, keep_solid=None)``: ``filter`` is the filter that
+    makes the filtered field (its radius R and element size h give the default ``c = (R / h)^4``, the paper's
+    choice, with the gradient taken per element side); ``projection`` is the projection P of the design the
+    goal reads; ``threshold`` is the value a member of the asked size reaches, usually
+    ``member_threshold(filter, size_mm)``, a number between 0 and 1; ``keep_solid`` (a ``KeepSolid``, or a
+    boolean array with one entry per element) marks the elements the user holds solid. The value is
+    dimensionless.
+
+    The thresholds ``eta_e`` are built from these on the first evaluation, when the grid is known (the
+    filter does not hold it), and kept in ``thresholds`` (``None`` before then):
+
+    - ``reach = filter.forward(grid.active)`` is the filtered field of the fully solid part, and
+      ``eta_e = min(threshold, reach_e)``. The filter is linear with weights that are not negative, so no
+      design gives an element more than its reach; where the part cannot hold a member of the asked size,
+      the limit asks for what the fully solid part reaches there.
+    - ``eta_e = 0`` on the elements of ``keep_solid``: the optimiser cannot change them, so they are not
+      judged. The design elements attached to them are judged as before.
+
+    The fully solid part therefore gives g = 0 exactly, whatever its shape, and the bound can always be met.
+    The module's docstring states what this costs.
 
     Supported with the ``DensityFilter`` (the cone filter the paper uses, eq. 6). With the
     ``HelmholtzFilter`` it is experimental (``experimental`` is then true): the paper's ``c`` and its values
@@ -129,21 +169,61 @@ class MemberSize:
     unit = "1"
     reads = ()
 
-    def __init__(self, filter, projection: Projection, threshold: float, c: float | None = None):
+    def __init__(
+        self, filter, projection: Projection, threshold: float, c: float | None = None, keep_solid=None
+    ):
         if not isinstance(filter, (_engine.DensityFilter, HelmholtzFilter)):
             raise InvalidType(f"MemberSize takes a DensityFilter or a HelmholtzFilter; got {type(filter).__name__}")
         if not isinstance(projection, _engine.Projection):
             raise InvalidType(f"MemberSize takes a Projection; got {type(projection).__name__}")
+        threshold = float(threshold)
+        if not (math.isfinite(threshold) and 0.0 <= threshold <= 1.0):
+            raise InvalidValue(f"the threshold of MemberSize must lie between 0 and 1; got {threshold!r}")
+        if keep_solid is None or isinstance(keep_solid, KeepSolid):
+            held = None if keep_solid is None else keep_solid.mask
+        else:
+            held = np.asarray(keep_solid)
+            if held.ndim != 1 or held.dtype != bool:
+                raise InvalidType(
+                    "keep_solid takes a KeepSolid or a boolean array with one entry per element; got "
+                    f"{type(keep_solid).__name__} of {held.ndim} dimensions and type {held.dtype}"
+                )
+            held = held.copy()
+        self.filter = filter
         self.radius = float(filter.radius)
         self.element_size = float(filter.element_size)
         self.projection = projection
-        self.threshold = float(threshold)
+        self.threshold = threshold
+        self.keep_solid = held
         self.c = (self.radius / self.element_size) ** 4 if c is None else float(c)
         self.experimental = isinstance(filter, HelmholtzFilter)
+        self._thresholds = None
+        self._active = None
+
+    @property
+    def thresholds(self) -> np.ndarray | None:
+        """eta_e, one per element (read-only), as built on the first evaluation; ``None`` before it."""
+        return self._thresholds
+
+    def _thresholds_on(self, grid) -> np.ndarray:
+        active = np.asarray(grid.active, dtype=float)
+        if self._thresholds is None or not np.array_equal(active, self._active):
+            if self.keep_solid is not None and self.keep_solid.size != active.size:
+                raise InvalidValue(
+                    f"keep_solid of MemberSize needs {active.size} entries, one per element "
+                    f"(got {self.keep_solid.size})"
+                )
+            reach = np.asarray(self.filter.forward(active), dtype=float)
+            thresholds = np.minimum(self.threshold, reach)
+            if self.keep_solid is not None:
+                thresholds[self.keep_solid] = 0.0
+            thresholds.flags.writeable = False
+            self._thresholds, self._active = thresholds, active
+        return self._thresholds
 
     def evaluate(self, grid, filtered: np.ndarray) -> tuple[float, np.ndarray]:
         """g and dg/d(filtered) on ``grid`` (a ``Grid`` or a ``Grid3d``), computed in the engine."""
-        return _engine.member_size(grid, filtered, self.projection, self.threshold, self.c)
+        return _engine.member_size(grid, filtered, self.projection, self._thresholds_on(grid), self.c)
 
     def value(self, ev) -> float:
         return float(self.evaluate(ev.grid, ev.density)[0])

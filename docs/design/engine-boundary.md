@@ -44,7 +44,7 @@ objects. Planned objects, with the [milestone](../roadmap.md) that brings them:
 | `Grid` | built from shape, voxel size and an active-element mask | 1 |
 | `Elasticity` | `solve(rho, loads, held_values=None) -> u`, `adjoint(rho, rhs) -> lambda` (in 3D both also take a first guess `start=None`, and `last_solve_report()` gives the steps of the last solve), `sensitivity(rho, u, lambda)` (the term $-\lambda^T (\partial K / \partial \rho_e)\, u$ per element, sign included), `element_strain_energy`, `element_stress` | 1 (2D), 2 (3D) |
 | `DensityFilter`, `HelmholtzFilter`, `Projection` | `forward(x)`, `backward(x, grad)` | 1, 2 |
-| `member_size` (a function) | `member_size(grid, filtered, projection, threshold, c) -> (g, dg/dfiltered)`: the member-size limit on the filtered field | 3 |
+| `member_size` (a function) | `member_size(grid, filtered, projection, thresholds, c) -> (g, dg/dfiltered)`: the member-size limit on the filtered field, one threshold per element | 3 |
 | `Oc` | `update(x, d_goal, d_limit, limit_weights, limit_bound, filter=None) -> x`: the classic update for one limit, measured on the filtered field | 1 |
 | `Mma` | built from the bounds of the variables and the number of limits; `update(x, goal, d_goal, limits, d_limits) -> x`, with the limits written f_i(x) <= 0 and `d_limits` one row per limit; it remembers the two previous designs | 1 |
 | `dot` (a function) | `dot(a, b) -> float`: the dot product of two vectors, summed in index order, for the products of the optimisation loop (see "Threads") | 1 |

@@ -10,32 +10,35 @@ use crate::grid::Grid;
 use crate::grid3d::Grid3d;
 use crate::projection::Projection;
 
-/// g = (1/n) sum_e I_e [min(f_e - threshold, 0)]^2 with the indicator I_e = P(f_e) exp(-c |grad f|_e^2)
+/// g = (1/n) sum_e I_e [min(f_e - t_e, 0)]^2 with the indicator I_e = P(f_e) exp(-c |grad f|_e^2)
 /// (Zhou, Lazarov, Wang and Sigmund 2015, eqs. 8 and 10), for the filtered field `filtered` on `grid` (a
 /// `Grid` or a `Grid3d`), with P the `projection`, the gradient per element side by differences between
-/// neighbouring active elements, and n the number of active elements. Returns `(g, dg/dfiltered)`.
+/// neighbouring active elements, n the number of active elements and t_e the entry of `thresholds` (one per
+/// element, each between 0 and 1) for element e. Returns `(g, dg/dfiltered)`.
 ///
 /// A short call: one pass over the elements on one thread, reading the array in place.
 #[pyfunction]
-#[pyo3(signature = (grid, filtered, projection, threshold, c))]
+#[pyo3(signature = (grid, filtered, projection, thresholds, c))]
 pub fn member_size<'py>(
     py: Python<'py>,
     grid: &Bound<'py, PyAny>,
     filtered: &Bound<'py, PyAny>,
     projection: &Bound<'py, Projection>,
-    threshold: f64,
+    thresholds: &Bound<'py, PyAny>,
     c: f64,
 ) -> PyResult<(f64, Bound<'py, PyArray1<f64>>)> {
     let projection = projection.get().inner;
+    let thresholds = read_vector(thresholds, "thresholds")?;
+    let thresholds = as_slice(py, &thresholds, "thresholds")?.to_vec();
     let constraint = if let Ok(grid) = grid.cast::<Grid>() {
         let grid = &grid.get().inner;
         run_in_place(py, || {
-            michell::MemberSize::on_grid2d(grid, projection, threshold, c)
+            michell::MemberSize::on_grid2d(grid, projection, thresholds, c)
         })?
     } else if let Ok(grid) = grid.cast::<Grid3d>() {
         let grid = &grid.get().inner;
         run_in_place(py, || {
-            michell::MemberSize::on_grid3d(grid, projection, threshold, c)
+            michell::MemberSize::on_grid3d(grid, projection, thresholds, c)
         })?
     } else {
         return Err(PyTypeError::new_err(

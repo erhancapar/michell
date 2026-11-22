@@ -61,7 +61,8 @@
 //! n variables per limit pair, so one Newton step costs O(n m^2), never O(n^2).
 //!
 //! The step is shortened so that every positive variable keeps at least 1 % of its value
-//! (fraction to the boundary), and then halved until the norm of all residuals falls.
+//! (fraction to the boundary), and then halved until a norm of all residuals falls (see "The weight of
+//! the limits in the line search" below).
 //!
 //! The units of the limits. The Newton direction does not depend on the units in which each limit is
 //! written, but the two tests of the method do: the step is halved until the Euclidean norm of all the
@@ -88,6 +89,33 @@
 //! since every p_ij and q_ij is), and omega_i = min(1, size of g_0 / size of g_i): a limit no steeper
 //! than the goal is left as it is. The solution is returned in the caller's units.
 //!
+//! Only r_lam_i is wanted in the new units. r_y_i = c_i + d_i y_i - lambda_i - mu_i holds numbers of the
+//! size of c_i, which the substitution makes 1 / omega_i times larger: with c_i = 1000 and omega_i = 6e-4
+//! they are about 1.6e6, whose spacing in floating point is 2.3e-10, so r_y_i cannot be brought below
+//! about 1e-10, and the last epsilon (`EPSILON_END`) asks for 0.9e-10. When a limit cannot be met within
+//! the move limits (y_i > 0, lambda_i = c_i + d_i y_i - mu_i of the size of c_i) the solver then stalls
+//! there: no step lowers the norm, the step is halved to nothing, and it runs out of steps. So both tests
+//! weigh r_y_i by omega_i, which measures it in the caller's units, where those numbers are of the size of
+//! c_i = 1000 and their rounding (1e-13) is far below any epsilon.
+//!
+//! The weight of the limits in the line search. r_lam_i is one number, but g_i is a sum over all n
+//! variables, while every other residual but r_y, r_z, r_mu, r_zeta and r_s belongs to one variable. A
+//! Newton step moves every variable at once (lowering epsilon tenfold moves each variable near a bound by
+//! nine tenths of its distance to it), and the second-order change of g_i along the step, sum_j
+//! (p_ij / (u_j - x_j)^3 + q_ij / (x_j - l_j)^3) d_x_j^2, adds up over all of them, so it grows like n,
+//! while the Euclidean norm of the n residuals of one kind grows like sqrt(n). On a large subproblem the
+//! one residual r_lam_i then decides the halving: with 746 496 variables, a limit whose asymptotes are at
+//! their nearest and epsilon 1e-7, the full step raises r_lam_i from 2e-4 to 0.2 while the other
+//! residuals' norm is 1e-3, the accepted step is a few thousandths of the Newton step, and the solver
+//! needs 555 Newton steps for that epsilon. The norm of the line search therefore weighs each r_lam_i by
+//! 1 / sqrt(n), which puts a sum of n terms on the footing of the Euclidean norm of those n terms (n
+//! terms of size e sum to n e, and their norm is sqrt(n) e). The test of epsilon is the one of the note,
+//! on the residuals unweighted (except r_y, above), so the solution meets the same conditions. The Newton
+//! direction is the same for every weight, and it is a descent direction for the norm of the residuals
+//! with any fixed positive weights (along it each residual falls at the rate of its own value, so the
+//! weighted sum of squares falls at twice its own value), which is what the line search of section 5.4
+//! needs.
+//!
 //! Threads. Every loop over the n variables runs on the threads of `threads.rs`: the entries of a vector
 //! over the variables are each computed by one thread with the same arithmetic on any thread count, and
 //! every sum over the variables (the values g_i(x), the norm of the residuals, the sums that build the
@@ -103,8 +131,11 @@ use crate::threads::Threads;
 pub const EPSILON_START: f64 = 1.0;
 /// ... is multiplied by this factor each time the residual has fallen below 0.9 epsilon, ...
 pub const EPSILON_FACTOR: f64 = 0.1;
-/// ... and the solver stops once the residual is below 0.9 epsilon for this epsilon.
-pub const EPSILON_END: f64 = 1e-9;
+/// ... and the solver stops once the residual is below 0.9 epsilon for this epsilon (Svanberg's note,
+/// section 5.5, names 1e-7 or less), ...
+pub const EPSILON_END: f64 = 1e-10;
+/// ... reached after this many reductions of epsilon.
+pub const EPSILON_LOWERINGS: usize = 10;
 /// Newton steps allowed for one value of epsilon before the solver gives up.
 pub const NEWTON_STEPS_PER_EPSILON: usize = 200;
 /// A step may take a positive variable down to this fraction of its distance to zero, not further.
@@ -168,32 +199,39 @@ struct Residual {
 }
 
 impl Residual {
-    /// The residuals of the unknowns that are not indexed by the variables (y, z, lambda, mu, zeta, s).
-    fn per_limit(&self) -> impl Iterator<Item = f64> + '_ {
+    /// The residuals of the unknowns that are not indexed by the variables (y, z, lambda, mu, zeta, s),
+    /// each r_y_i multiplied by `y_weight[i]` and each r_lam_i by `lambda_weight` (see "The units of the
+    /// limits" and "The weight of the limits in the line search" in the file header).
+    fn per_limit<'a>(
+        &'a self,
+        y_weight: &'a [f64],
+        lambda_weight: f64,
+    ) -> impl Iterator<Item = f64> + 'a {
         self.y
             .iter()
-            .chain(std::iter::once(&self.z))
-            .chain(&self.lambda)
-            .chain(&self.mu)
-            .chain(std::iter::once(&self.zeta))
-            .chain(&self.s)
-            .copied()
+            .zip(y_weight)
+            .map(|(r, w)| r * w)
+            .chain(std::iter::once(self.z))
+            .chain(self.lambda.iter().map(move |r| r * lambda_weight))
+            .chain(self.mu.iter().copied())
+            .chain(std::iter::once(self.zeta))
+            .chain(self.s.iter().copied())
     }
 
-    /// The Euclidean norm of all residuals: the terms of x, xi and eta summed by the block rule of
-    /// `threads.rs`, then the others in order.
-    fn norm(&self, threads: &Threads) -> f64 {
+    /// The Euclidean norm of all residuals, r_y weighted by `y_weight` and r_lam by `lambda_weight`: the
+    /// terms of x, xi and eta summed by the block rule of `threads.rs`, then the others in order.
+    fn norm(&self, y_weight: &[f64], lambda_weight: f64, threads: &Threads) -> f64 {
         let mut sum = threads.sum(self.x.len(), |j| {
             self.x[j] * self.x[j] + self.xi[j] * self.xi[j] + self.eta[j] * self.eta[j]
         });
-        for v in self.per_limit() {
+        for v in self.per_limit(y_weight, lambda_weight) {
             sum += v * v;
         }
         sum.sqrt()
     }
 
-    /// The largest magnitude of all residuals.
-    fn largest(&self, threads: &Threads) -> f64 {
+    /// The largest magnitude of all residuals, r_y weighted by `y_weight`.
+    fn largest(&self, y_weight: &[f64], threads: &Threads) -> f64 {
         let mut largest = 0.0_f64;
         for block in threads.blocks(self.x.len(), |block| {
             block.fold(0.0_f64, |m, j| {
@@ -204,7 +242,8 @@ impl Residual {
         }) {
             largest = largest.max(block);
         }
-        self.per_limit().fold(largest, |m, v| m.max(v.abs()))
+        self.per_limit(y_weight, 1.0)
+            .fold(largest, |m, v| m.max(v.abs()))
     }
 }
 
@@ -515,7 +554,7 @@ pub fn solve(sub: &Subproblem<'_>) -> Result<Solution, EngineError> {
 pub fn solve_on(sub: &Subproblem<'_>, threads: &Threads) -> Result<Solution, EngineError> {
     let omega = limit_units(sub, threads);
     if omega.iter().all(|&w| w == 1.0) {
-        return solve_in_given_units(sub, threads);
+        return solve_in_given_units(sub, &omega, threads);
     }
     let n = sub.n();
     let scaled = |values: &[f64]| {
@@ -541,6 +580,7 @@ pub fn solve_on(sub: &Subproblem<'_>, threads: &Threads) -> Result<Solution, Eng
             d: &d,
             ..*sub
         },
+        &omega,
         threads,
     )?;
     Ok(Solution {
@@ -555,30 +595,35 @@ pub fn solve_on(sub: &Subproblem<'_>, threads: &Threads) -> Result<Solution, Eng
     })
 }
 
-/// The primal-dual method of the file header on the subproblem as given.
-fn solve_in_given_units(sub: &Subproblem<'_>, threads: &Threads) -> Result<Solution, EngineError> {
+/// The primal-dual method of the file header on the subproblem as given, with r_y_i weighted by
+/// `y_weight[i]` in both tests of the method.
+fn solve_in_given_units(
+    sub: &Subproblem<'_>,
+    y_weight: &[f64],
+    threads: &Threads,
+) -> Result<Solution, EngineError> {
     let mut point = sub.start(threads);
-    let mut epsilon = EPSILON_START;
-    loop {
+    let lambda_weight = 1.0 / (sub.n() as f64).sqrt();
+    for epsilon in epsilon_levels() {
         let mut steps = 0;
         let mut res = sub.residual(&point, epsilon, threads);
-        while res.largest(threads) > 0.9 * epsilon {
+        while res.largest(y_weight, threads) > 0.9 * epsilon {
             if steps == NEWTON_STEPS_PER_EPSILON {
                 return Err(EngineError::new(
                     ErrorCode::SolverNotConverged,
                     "the MMA subproblem solver did not reach its tolerance",
                 )
                 .with_number("epsilon", epsilon)
-                .with_number("residual", res.largest(threads))
+                .with_number("residual", res.largest(y_weight, threads))
                 .with_integer("newton_steps", steps));
             }
             let step = sub.newton_step(&point, &res, threads)?;
             let mut t = sub.longest_step(&point, &step, threads);
-            let norm_before = res.norm(threads);
+            let norm_before = res.norm(y_weight, lambda_weight, threads);
             let mut candidate = moved(&point, &step, t, threads);
             let mut candidate_res = sub.residual(&candidate, epsilon, threads);
             for _ in 0..STEP_HALVINGS {
-                if candidate_res.norm(threads) < norm_before {
+                if candidate_res.norm(y_weight, lambda_weight, threads) < norm_before {
                     break;
                 }
                 t *= 0.5;
@@ -589,10 +634,6 @@ fn solve_in_given_units(sub: &Subproblem<'_>, threads: &Threads) -> Result<Solut
             res = candidate_res;
             steps += 1;
         }
-        if epsilon <= EPSILON_END {
-            break;
-        }
-        epsilon *= EPSILON_FACTOR;
     }
     Ok(Solution {
         x: point.x,
@@ -600,6 +641,17 @@ fn solve_in_given_units(sub: &Subproblem<'_>, threads: &Threads) -> Result<Solut
         z: point.z,
         lambda: point.lambda,
     })
+}
+
+/// The values of epsilon, from `EPSILON_START`, each the one before times `EPSILON_FACTOR`, the last
+/// `EPSILON_END` (to rounding: ten products by 0.1 give 1.0000000000000006e-10). The levels are counted
+/// rather than found by comparing the product with the end, which rounding leaves a little above the
+/// decimal value: such a test adds a level below the end.
+fn epsilon_levels() -> impl Iterator<Item = f64> {
+    std::iter::successors(Some(EPSILON_START), |epsilon| {
+        Some(epsilon * EPSILON_FACTOR)
+    })
+    .take(EPSILON_LOWERINGS + 1)
 }
 
 /// Solves the dense system `matrix` (size by size, row by row) times v = `rhs` by Gaussian elimination
@@ -735,6 +787,157 @@ mod tests {
         assert!((solution.x[0] - 1.5).abs() < 1e-8);
         assert!((solution.lambda[0] - 0.04e-4).abs() < 1e-12);
         assert!(solution.y[0] < 1e-8);
+    }
+
+    /// A limit that cannot be met within the move limits, so that y > 0 and lambda = c + d y, with a goal
+    /// 10^k times flatter than it, for k = 3 to 9. The solver writes the limit in units in which it is no
+    /// steeper than the goal (see "The units of the limits" in the file header), where c is about 10^k
+    /// times larger than the caller's 1000; r_y = c + d y - lambda - mu then has a rounding error of
+    /// about one spacing of those numbers, far above 0.9 epsilon at the last epsilon, unless r_y is
+    /// measured in the caller's units. The limit 1/(2 - x) - 2 is smallest at x = alpha = 1.6, where its
+    /// value is 0.5: x = 1.6, y = 0.5 and lambda = c + d y = 1000.5, whatever the goal's size.
+    #[test]
+    fn a_limit_that_cannot_be_met_far_steeper_than_the_goal_is_solved() {
+        for k in 3..=9 {
+            let flat = 10f64.powi(-k);
+            let sub = Subproblem {
+                lower: &[-1.0],
+                upper: &[2.0],
+                alpha: &[1.6],
+                beta: &[1.9],
+                p0: &[0.0],
+                q0: &[flat],
+                p: &[1.0],
+                q: &[0.0],
+                r: &[-2.0],
+                a0: 1.0,
+                a: &[0.0],
+                c: &[1000.0],
+                d: &[1.0],
+            };
+            assert!(limit_units(&sub, &Threads::new(1).unwrap())[0] < 10.0 * flat);
+            let solution = match solve(&sub) {
+                Ok(solution) => solution,
+                Err(error) => panic!("a goal 1e{k} times flatter: {error}"),
+            };
+            assert!(
+                (solution.x[0] - 1.6).abs() < 1e-8,
+                "1e{k}: x {}",
+                solution.x[0]
+            );
+            assert!(
+                (solution.y[0] - 0.5).abs() < 1e-8,
+                "1e{k}: y {}",
+                solution.y[0]
+            );
+            assert!(
+                (solution.lambda[0] - 1000.5).abs() < 1e-6,
+                "1e{k}: lambda {}",
+                solution.lambda[0]
+            );
+        }
+    }
+
+    /// A subproblem of 20 000 variables shaped like one met in a large three-dimensional run: a goal
+    /// steep on 1 % of the variables (derivative -1000) and nearly flat elsewhere, a mass limit with small
+    /// positive derivatives, and a second limit, violated, with derivatives up to 0.85 of either sign on
+    /// 15 % of the variables, its asymptotes as near as 0.01. Lowering epsilon moves the many variables near
+    /// a bound at once, and the second-order change of that limit along the step, summed over them, then
+    /// outweighs the other residuals in an unweighted norm: the step is halved to a few hundredths and the
+    /// solver runs out of steps (see "The weight of the limits in the line search" in the file header).
+    /// The limits must be met and the bounds kept.
+    #[test]
+    fn a_limit_curved_on_many_variables_is_solved() {
+        let n = 20_000;
+        let spread = |j: usize, step: f64| (j as f64 * step) % 1.0;
+        let x: Vec<f64> = (0..n).map(|j| 0.05 + 0.9 * spread(j, 0.618_034)).collect();
+        let half: Vec<f64> = (0..n).map(|j| 0.01 + 0.4 * spread(j, 0.414_214)).collect();
+        let lower: Vec<f64> = (0..n).map(|j| x[j] - half[j]).collect();
+        let upper: Vec<f64> = (0..n).map(|j| x[j] + half[j]).collect();
+        let alpha: Vec<f64> = (0..n)
+            .map(|j| 0.0_f64.max(lower[j] + 0.1 * half[j]).max(x[j] - 0.5))
+            .collect();
+        let beta: Vec<f64> = (0..n)
+            .map(|j| 1.0_f64.min(upper[j] - 0.1 * half[j]).min(x[j] + 0.5))
+            .collect();
+        let d_goal: Vec<f64> = (0..n)
+            .map(|j| {
+                if spread(j, 0.754_878) < 0.01 {
+                    -1e3
+                } else {
+                    -1e-8
+                }
+            })
+            .collect();
+        let d_mass = vec![1e-5; n];
+        let d_second: Vec<f64> = (0..n)
+            .map(|j| {
+                let pick = spread(j, 0.569_840);
+                let sign = if pick < 0.11 { 1.0 } else { -1.0 };
+                if pick < 0.15 {
+                    0.85 * sign * spread(j, 0.377_96)
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        // The approximation of mma.rs (part 4) of a function with the value `value` and gradient `g` at x.
+        let terms = |value: f64, g: &[f64]| {
+            let mut p = vec![0.0; n];
+            let mut q = vec![0.0; n];
+            let mut sum = 0.0;
+            for j in 0..n {
+                let (positive, negative) = (g[j].max(0.0), (-g[j]).max(0.0));
+                p[j] = half[j] * half[j] * (1.001 * positive + 0.001 * negative + 1e-5);
+                q[j] = half[j] * half[j] * (0.001 * positive + 1.001 * negative + 1e-5);
+                sum += (p[j] + q[j]) / half[j];
+            }
+            (p, q, value - sum)
+        };
+        let (p0, q0, _) = terms(1e4, &d_goal);
+        let (p1, q1, r1) = terms(-0.2, &d_mass);
+        let (p2, q2, r2) = terms(36.75, &d_second);
+        let sub = Subproblem {
+            lower: &lower,
+            upper: &upper,
+            alpha: &alpha,
+            beta: &beta,
+            p0: &p0,
+            q0: &q0,
+            p: &[p1, p2].concat(),
+            q: &[q1, q2].concat(),
+            r: &[r1, r2],
+            a0: 1.0,
+            a: &[0.0, 0.0],
+            c: &[1000.0, 1000.0],
+            d: &[1.0, 1.0],
+        };
+        let solution = match solve(&sub) {
+            Ok(solution) => solution,
+            Err(error) => panic!("{error}"),
+        };
+        let threads = Threads::new(1).unwrap();
+        for (i, value) in sub.limit_values(&solution.x, &threads).iter().enumerate() {
+            assert!(*value <= 1e-8, "limit {i}: {value}");
+            assert!(solution.y[i] < 1e-8 && solution.lambda[i] >= 0.0);
+        }
+        assert!((0..n).all(|j| solution.x[j] > alpha[j] && solution.x[j] < beta[j]));
+    }
+
+    /// The relaxation epsilon runs through 1, 0.1, ..., down to `EPSILON_END` and no further: the levels
+    /// are counted, not compared with a product of factors that rounding can leave above the end.
+    #[test]
+    fn epsilon_ends_at_the_documented_level() {
+        let levels: Vec<f64> = epsilon_levels().collect();
+        assert_eq!(levels.first(), Some(&EPSILON_START));
+        let last = *levels.last().unwrap();
+        assert!(
+            (last / EPSILON_END - 1.0).abs() < 1e-12,
+            "last epsilon {last}"
+        );
+        for pair in levels.windows(2) {
+            assert!((pair[1] / pair[0] - EPSILON_FACTOR).abs() < 1e-12);
+        }
     }
 
     #[test]

@@ -20,7 +20,7 @@ def assert_rows_pass(rows):
 
 def test_row_9_mma_reaches_published_optima():
     rows = verification.row_9_published_optima()
-    assert len(rows) == 4
+    assert len(rows) == 5
     assert_rows_pass(rows)
 
 

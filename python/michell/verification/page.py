@@ -26,12 +26,14 @@ then the member-size limit) on a 3D bridge and measures the design it returns, a
 voxeliser, which turns closed triangle meshes into the share of every voxel inside them, against exact
 volumes, as the voxels are halved, on bodies whose edges and vertices lie exactly on its rays and on 1 and 12
 threads, and the voxel model of a part built from design, solid and void regions. The measure, the set-up and the limit of every row were fixed before its first result
-was computed, with two exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
+was computed, with three exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
 were set after trial runs; and in row 30 the convergence measure (the largest error over 8 placements of
 each body) and the voxel sizes were set after two trial runs: one placement per size, whose error changed
 sign from size to size, then this measure at 2 to 0.25 mm, where the torus's error fell by 2.7 only from 2
-to 1 mm; its code states both. Every limit is an upper bound on the measured value. Measured values are rounded
+to 1 mm; its code states both; and the fifth line of row 9 (the two-bar truss with its goal written 1e6 times
+smaller) was added, with the limit of the row's first lines, after its problem was known to stop the subproblem
+solver of an earlier version. Every limit is an upper bound on the measured value. Measured values are rounded
 to three significant digits; values at the level of floating-point round-off may differ in those digits from
 one machine to another. The code of every row, with its set-up, is in `python/michell/verification/`, and
 continuous integration runs every row on each change."""

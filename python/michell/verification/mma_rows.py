@@ -15,7 +15,8 @@ from michell.mma import MovingAsymptotes
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, optimise
 from michell.responses import Compliance, Mass
-from michell.row import PUBLISHED_OPTIMUM, REFERENCE_CODE, Row, checked, g3, not_run
+from michell.errors import EngineError
+from michell.row import PUBLISHED_OPTIMUM, REFERENCE_CODE, REPEATABILITY, Row, checked, g3, not_run
 from michell.verification.mbb import REFERENCE_NOT_FOUND, mbb_problem, read_reference
 
 # ---------------------------------------------------------------------------------------------------------
@@ -31,6 +32,15 @@ from michell.verification.mbb import REFERENCE_NOT_FOUND, mbb_problem, read_refe
 #
 # The published optima carry the digits the paper prints: the cantilever's 1.340 to four digits, the
 # truss's 1.51 to three, so that comparison can only be as fine as the rounding (+-0.33 % for 1.51).
+#
+# A fifth line: the units of the goal. The two-bar truss with its goal written 10^6 times smaller (weight
+# times 1e-6), its limits as published, from the published start with the same settings: MMA must run
+# through and reach the objective of the run in the published scaling within 0.1 % (the limit of the first
+# lines). Unlike the first four lines, this one was added after its problem was known to stop the
+# subproblem solver of an earlier version (on `solver_not_converged`), and its limit set then. The limits are then about 10^6 times steeper than the goal, and the subproblem solver writes them
+# in other units (`mma_subproblem.rs`, "The units of the limits"), in which the penalty c of each limit is
+# about 10^9; the line checks that the solver reaches its tolerance in those units.
+GOAL_UNITS = 1e-6
 
 
 class Cantilever:
@@ -120,7 +130,7 @@ def solve_with_scipy(problem, minimize) -> float | None:
 
 
 def row_9_published_optima() -> list[Row]:
-    """Two lines per problem: the objective, and the worst limit."""
+    """Two lines per problem, the objective and the worst limit, then the line on the units of the goal."""
     try:
         from scipy.optimize import minimize
     except ImportError:
@@ -149,7 +159,36 @@ def row_9_published_optima() -> list[Row]:
         )
         rows.append(checked(9, goal_title, PUBLISHED_OPTIMUM, max(to_published, to_scipy), 1e-3, note))
         rows.append(checked(9, limit_title, PUBLISHED_OPTIMUM, worst_limit, 1e-6, "every limit written as f_i <= 1 in the published scaling"))
+    rows.append(row_9_goal_units())
     return rows
+
+
+class _TrussWithSmallGoal(TwoBarTruss):
+    """The two-bar truss with its goal multiplied by ``GOAL_UNITS``."""
+
+    def goal(self, x):
+        value, gradient = super().goal(x)
+        return value * GOAL_UNITS, gradient * GOAL_UNITS
+
+
+def row_9_goal_units() -> Row:
+    """The fifth line of row 9: the two-bar truss with its goal written 10^6 times smaller."""
+    title = "MMA on Svanberg's two-bar truss with the goal written 1e6 times smaller: objective against the published scaling's"
+    problem = TwoBarTruss()
+    x, _ = solve_with_mma(problem)
+    reference = float(problem.goal(x)[0])
+    try:
+        x_small, updates = solve_with_mma(_TrussWithSmallGoal())
+    except EngineError as error:
+        return checked(9, title, REPEATABILITY, float("inf"), 1e-3, f"MMA stopped: {error.code}: {error.message}")
+    goal = float(problem.goal(x_small)[0])
+    worst_limit = float(problem.limits(x_small)[0].max())
+    note = (
+        f"objective {goal:.6g} against {reference:.6g}, worst limit f_i - 1 {g3(worst_limit)}; {updates} updates; "
+        "the limits about 1e6 times steeper than the goal; line and limit added after the problem was known "
+        "to stop an earlier version"
+    )
+    return checked(9, title, REPEATABILITY, abs(goal - reference) / reference, 1e-3, note)
 
 
 # ---------------------------------------------------------------------------------------------------------

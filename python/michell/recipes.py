@@ -14,6 +14,7 @@ and the settings, so the same run can be written out by hand from its docstring.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import numbers
 import warnings
@@ -28,7 +29,7 @@ from michell.errors import InvalidType, InvalidValue
 from michell.filters import DensityFilter, KeepSolid, Projection
 from michell.member_size import MemberSize, member_threshold
 from michell.mma import MovingAsymptotes
-from michell.optimise import Limit, LimitNotMet, Result, optimise
+from michell.optimise import Limit, LimitNotMet, Result, limit_met, optimise
 from michell.problem import Problem
 from michell.responses import Compliance, Mass
 
@@ -43,6 +44,12 @@ SPREAD = 0.25
 PASSES_PER_BOUND = 10
 SECOND_STEP_PASSES = 40
 SECOND_STEP_BETA = 32.0
+MOVE_LIMIT = 0.5
+SECOND_STEP_MOVE_LIMIT = 0.1
+SECOND_STEP_RETURNS = "best"
+RETURNS = ("last", "best")
+# The tolerance of `optimise`'s test of a limit (its default `limit_tolerance`, which `stiff_part` keeps).
+LIMIT_TOLERANCE = 1e-3
 
 # Below this member size in element sides, `stiff_part` warns (`GridTooCoarse`).
 COARSE_BELOW_ELEMENTS = 5
@@ -103,13 +110,19 @@ class RecipePass:
 class StiffPart:
     """What ``stiff_part`` returns.
 
-    - ``x``: the design variables after the last pass; ``filtered``: the filtered field (the output of the
-      filters, ``KeepSolid`` first and the density filter last); ``nominal``: the design, the projection of
-      ``filtered`` at beta 32 and the threshold 0.5 with the held elements solid.
-    - ``result``: the ``Result`` of the last ``optimise`` call (the member-size step), with ``goal`` (the
-      compliance of ``nominal``), ``limits`` (its mass and member-size value), ``limits_met`` and
-      ``stop_reason``.
+    - ``x``: the design variables of the returned design (by default those after the last pass, see
+      ``returned_pass``); ``filtered``: its filtered field (the output of the filters, ``KeepSolid`` first and
+      the density filter last); ``nominal``: the design, the projection of ``filtered`` at beta 32 and the
+      threshold 0.5 with the held elements solid.
+    - ``result``: the ``Result`` of the member-size step, with ``goal`` (the compliance of ``nominal``),
+      ``limits`` (its mass and member-size value), ``limits_met``, ``stop_reason``, and ``x``, ``density`` and
+      ``designs`` of the returned design; its ``passes`` are the records of every pass of the step, whichever
+      design is returned.
     - ``passes``: the record of every pass of both steps, in order (``RecipePass``).
+    - ``returned_pass``: which design of the member-size step is returned: ``k`` is the design that pass ``k``
+      of the step started from (1: the design at the end of the robust step), its values those of the record
+      of pass ``k``; ``second_step_passes + 1`` is the design after the last update (always so with
+      ``second_step_returns="last"``).
     - ``first_step_nominal``: the nominal design at the end of the robust step, at beta 32 like ``nominal``,
       so that what the member-size step changed can be measured.
     - ``member_size``: the ``MemberSize`` response of the second step, with its ``threshold`` (the value a
@@ -130,23 +143,32 @@ class StiffPart:
     eps: float
     value_at_switch: float
     scale: float
+    returned_pass: int
 
 
 class _Watched:
     """Hands every call to a fresh ``MovingAsymptotes`` and reports each completed update: the goal and the
     limit values it was given and the largest change it made, the numbers ``optimise`` records in its
-    ``Pass``."""
+    ``Pass``. ``look``, if given, is shown every design before its update, with its goal and limit values."""
 
     name = "MMA"
 
-    def __init__(self, report: Callable[[float, tuple[float, ...], float], None]):
-        self._inner = MovingAsymptotes()
+    def __init__(
+        self,
+        report: Callable[[float, tuple[float, ...], float], None],
+        move_limit: float,
+        look: Callable[[np.ndarray, float, tuple[float, ...]], None] | None = None,
+    ):
+        self._inner = MovingAsymptotes(move_limit)
         self._report = report
+        self._look = look
 
     def start(self, problem, x, limits, filters):
         self._inner.start(problem, x, limits, filters)
 
     def update(self, x, goal, d_goal, limits, d_limits):
+        if self._look is not None:
+            self._look(x, float(goal), tuple(float(value) for value in limits))
         x_new = self._inner.update(x, goal, d_goal, limits, d_limits)
         self._report(float(goal), tuple(float(value) for value in limits), float(np.abs(x_new - x).max()))
         return x_new
@@ -193,6 +215,9 @@ def stiff_part(
     spread: float = SPREAD,
     passes_per_bound: int = PASSES_PER_BOUND,
     second_step_passes: int = SECOND_STEP_PASSES,
+    move_limit: float = MOVE_LIMIT,
+    second_step_move_limit: float = SECOND_STEP_MOVE_LIMIT,
+    second_step_returns: str = SECOND_STEP_RETURNS,
     eps: float | None = None,
     callback: Callable[[str, int, RecipePass], None] | None = None,
 ) -> StiffPart:
@@ -225,14 +250,31 @@ def stiff_part(
        its scale is its value at the switch, or ``eps`` if that is larger (``michell.member_size``). One
        call of ``optimise`` for ``second_step_passes`` passes minimises the compliance of the nominal design
        under its mass (at most ``mass_g``) and the member-size limit (at most ``eps``).
+    4. The returned design (``second_step_returns``): ``"last"``, the design after the last update; or
+       ``"best"``, the design of lowest compliance among those of the member-size step that meet both
+       limits by ``optimise``'s own test (``limit_met`` with its default ``limit_tolerance``, 1e-3), each
+       judged on the values of its own pass record: the design each pass started from (the first is the
+       design at the end of the robust step) and the design after the last update. When that is not the
+       last design it is evaluated once more (``optimise`` with no pass), so that ``result`` describes it;
+       when no design meets both limits the last one is returned, with ``LimitNotMet`` as with ``"last"``.
 
     Settings: ``schedule``, the sharpness of the projections and the passes at each, by default beta
     doubling from 1 to 32 with 21, 14, 14, 14, 18 and 19 passes (100 in all); ``spread``, the thresholds of
     the eroded and dilated designs are 0.5 + spread and 0.5 - spread (0.25, as in
     ``examples/cantilever_3d.py``); ``passes_per_bound``, how often the bound on the dilated mass is set
-    again (every 10 passes); ``second_step_passes``, 40; ``eps``, by default
-    ``member_size_bound(size_mm / h)`` for the element side h, figure 8 of Zhou et al. (2015) for the filter
-    radius in elements.
+    again (every 10 passes); ``second_step_passes``, 40; ``move_limit`` and ``second_step_move_limit``,
+    MMA's move limit in the robust step and in the member-size step (``MovingAsymptotes``: the largest change
+    of a design variable in one pass), 0.5 and 0.1; ``eps``, by default ``member_size_bound(size_mm / h)`` for
+    the element side h, figure 8 of Zhou et al. (2015) for the filter radius in elements;
+    ``second_step_returns``, ``"best"``.
+
+    Why the member-size step moves by at most 0.1 and returns its best design: with MMA's usual move limit of
+    0.5 the step at a fine grid (746 496 elements, members of 10.8 element sides) diverged every few passes, its
+    compliance rising from 25 to millions, and ended over its member-size bound; with 0.1 it is stable there and
+    meets the bound. The step then moves about the bound, so the design it ends on may lie just over it while
+    one a few passes earlier meets it; returning the best design that meets both limits makes the result
+    feasible whenever any design of the step is. The sources of pyMOTO and of TopOpt in PETSc state move limits
+    of 0.1 and 0.2.
 
     ``callback``, if given, is called after every pass as ``callback(step, number, record)``, with the
     step (``"robust"`` or ``"member size"``), the number of the pass counted through the step from 1, and
@@ -280,6 +322,10 @@ def stiff_part(
         raise InvalidValue(f"the spread of the thresholds must lie between 0 and 0.5; got {spread}")
     passes_per_bound = _whole_number(passes_per_bound, "passes_per_bound", 1)
     second_step_passes = _whole_number(second_step_passes, "second_step_passes", 1)
+    move_limit = MovingAsymptotes(move_limit).move_limit
+    second_step_move_limit = MovingAsymptotes(second_step_move_limit).move_limit
+    if not isinstance(second_step_returns, str) or second_step_returns not in RETURNS:
+        raise InvalidValue(f"second_step_returns must be 'last' or 'best'; got {second_step_returns!r}")
     if callback is not None and not callable(callback):
         raise InvalidType(f"the callback must be callable; got {type(callback).__name__}")
 
@@ -334,7 +380,7 @@ def stiff_part(
             field = f.forward(field)
         return element_mass * dot(np.asarray(grid.active, dtype=np.float64), np.ascontiguousarray(field))
 
-    def run(step: str, beta: float, bounds: tuple[float, ...], **kwargs) -> Result:
+    def run(step: str, beta: float, bounds: tuple[float, ...], move: float, look=None, **kwargs) -> Result:
         def report(goal: float, limits: tuple[float, ...], change: float) -> None:
             number = sum(1 for record in records if record.step == step) + 1
             record = RecipePass(step, number, beta, goal, limits, bounds, change)
@@ -343,7 +389,7 @@ def stiff_part(
                 callback(step, number, record)
 
         try:
-            return optimise(problem, filters=chain, optimiser=_Watched(report), **kwargs)
+            return optimise(problem, filters=chain, optimiser=_Watched(report, move, look), **kwargs)
         except EngineError as error:
             if not hasattr(error, "partial_result"):
                 error.partial_result = None
@@ -370,7 +416,7 @@ def stiff_part(
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", LimitNotMet)
                 result = run(
-                    ROBUST_STEP, beta, (bound,), goal=on("eroded", Compliance()),
+                    ROBUST_STEP, beta, (bound,), move_limit, goal=on("eroded", Compliance()),
                     limits=[Limit(on("dilated", mass), at_most=bound)], x=x, passes=n, designs=designs,
                 )  # fmt: skip
             x = result.x
@@ -391,11 +437,52 @@ def stiff_part(
         error.pass_number = 1
         raise
     scale = max(value_at_switch, eps)
-    result = run(
-        MEMBER_SIZE_STEP, SECOND_STEP_BETA, (mass_g, eps), goal=on("nominal", Compliance()),
-        limits=[Limit(on("nominal", mass), at_most=mass_g), Limit(on("filtered", member_size), at_most=eps, scale=scale)],
-        x=x, passes=second_step_passes, designs={"filtered": [], "nominal": [projection, *tail]},
-    )  # fmt: skip
+    second_limits = [
+        Limit(on("nominal", mass), at_most=mass_g),
+        Limit(on("filtered", member_size), at_most=eps, scale=scale),
+    ]
+    second = {"goal": on("nominal", Compliance()), "limits": second_limits,
+              "designs": {"filtered": [], "nominal": [projection, *tail]}}  # fmt: skip
+    returned_pass = second_step_passes + 1
+    if second_step_returns == "last":
+        result = run(
+            MEMBER_SIZE_STEP, SECOND_STEP_BETA, (mass_g, eps), second_step_move_limit, x=x, passes=second_step_passes,
+            **second,
+        )  # fmt: skip
+    else:
+        best: list = []  # [compliance, pass number, design variables] of the best design that meets both limits
+
+        def look(x_pass: np.ndarray, goal: float, values: tuple[float, ...]) -> None:
+            number = sum(1 for record in records if record.step == MEMBER_SIZE_STEP) + 1
+            if _meets(values, (mass_g, eps)) and (not best or goal < best[0]):
+                best[:] = [goal, number, np.array(x_pass, copy=True)]
+
+        # The step's own LimitNotMet is held back and given again below only if the last design is returned.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", LimitNotMet)
+            result = run(
+                MEMBER_SIZE_STEP, SECOND_STEP_BETA, (mass_g, eps), second_step_move_limit, look, x=x,
+                passes=second_step_passes, **second,
+            )  # fmt: skip
+        last_is_best = result.feasible and (not best or result.goal <= best[0])
+        if best and not last_is_best:
+            returned_pass = best[1]
+            try:
+                again = optimise(
+                    problem, filters=chain, optimiser=MovingAsymptotes(second_step_move_limit), x=best[2], passes=0,
+                    **second,
+                )  # fmt: skip
+            except EngineError as error:
+                error.partial_result = result
+                error.step = MEMBER_SIZE_STEP
+                error.pass_number = second_step_passes + 1
+                raise
+            result = dataclasses.replace(again, passes=result.passes, stop_reason=result.stop_reason)
+        for caught_warning in caught:
+            if returned_pass == second_step_passes + 1 or not issubclass(caught_warning.category, LimitNotMet):
+                warnings.warn_explicit(
+                    caught_warning.message, caught_warning.category, caught_warning.filename, caught_warning.lineno
+                )
     return StiffPart(
         x=result.x,
         filtered=result.designs["filtered"],
@@ -408,18 +495,27 @@ def stiff_part(
         eps=eps,
         value_at_switch=value_at_switch,
         scale=scale,
+        returned_pass=returned_pass,
     )
+
+
+def _meets(values: Sequence[float], bounds: Sequence[float]) -> bool:
+    """Whether every value meets its bound by ``optimise``'s own test, with its default tolerance."""
+    return all(limit_met(value, bound, LIMIT_TOLERANCE) for value, bound in zip(values, bounds))
 
 
 __all__ = [
     "COARSE_BELOW_ELEMENTS",
     "EPS_OF_FIGURE_8",
     "MEMBER_SIZE_STEP",
+    "MOVE_LIMIT",
     "PASSES_PER_BOUND",
     "ROBUST_STEP",
     "SCHEDULE",
     "SECOND_STEP_BETA",
+    "SECOND_STEP_MOVE_LIMIT",
     "SECOND_STEP_PASSES",
+    "SECOND_STEP_RETURNS",
     "SPREAD",
     "GridTooCoarse",
     "RecipePass",

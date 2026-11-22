@@ -196,7 +196,15 @@ writes the whole procedure out, and verification row 27 runs it.
 `michell.recipes.stiff_part(problem, mass_g, size_mm, keep_solid, filters, outside=..., ...)` writes the
 two procedures above out as one function: the robust set with the continuation of `beta` and the bound on the
 dilated mass set again every few passes, then the member-size limit switched on at beta 32, with its bound
-from figure 8 (`member_size_bound`). It is built from the public pieces only, holds no state between calls,
+from figure 8 (`member_size_bound`); `move_limit` and `second_step_move_limit` set MMA's move limit in the
+two steps. `second_step_returns` says which design of the member-size step is returned: `"last"`, the design
+after the last update, or `"best"`, the design of lowest compliance among those of the step that meet both
+limits (the step's start counts); `StiffPart.returned_pass` names it, and its fields and `result` describe it.
+By default the member-size step moves each variable by at most 0.1 per pass and returns its best design: with
+0.5 it diverged every few passes on a fine grid (746 496 elements) and ended over its bound, with 0.1 it is stable
+and meets it, and since it then moves about the bound, the best design that meets both limits is a feasible
+result whenever the step has one. The sources of pyMOTO and of TopOpt in PETSc state move limits of 0.1 and
+0.2. It is built from the public pieces only, holds no state between calls,
 and returns the fields, the last `Result` and a record of every pass; its docstring states each setting and
 the procedure's limits, and verification row 28 runs it on a 3D bridge. When the member size is fewer than
 five element sides (`size_mm / h < 5`) it warns with `GridTooCoarse`, a `UserWarning`, and runs all the
@@ -292,7 +300,11 @@ the first pass and each limit as `(value - at_most) / scale`, with the limit's `
 `|at_most|`, the relative excess over the bound; a limit whose bound is far below the values it takes before
 it is met (the member-size limit) is given a larger scale, `Limit(..., scale=...)`. Both scales stay fixed
 for the run. The goal's value first reaches the optimiser in `update`, so its scale is taken
-there, not in `start`.
+there, not in `start`. `MovingAsymptotes(move_limit=0.5)` also takes MMA's move limit: the largest change of
+a design variable in one update, as a share of its range from 0 to 1. The asymptotes already bound each step
+and adapt from pass to pass; the move limit is a fixed bound on top of them. 0.5 is the value of Svanberg's
+note; a smaller one damps the large steps that a sharp projection can provoke, and a large change then takes
+more passes.
 
 ## What every module must bring, and what it gets for free
 

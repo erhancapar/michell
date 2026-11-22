@@ -1,6 +1,8 @@
 """The two-step procedure of `michell.recipes`: one call, consistent fields, repeatable on any thread count,
 a callback per pass, refused arguments, the bound of figure 8; and verification row 28 (slow)."""
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -72,6 +74,54 @@ def test_the_callback_is_called_once_per_pass_with_the_records():
     assert all((step, number) == (record.step, record.number) for step, number, record in seen)
 
 
+def test_the_move_limits_reach_both_steps():
+    _, outcome = run_small(move_limit=0.05, second_step_move_limit=0.02)
+    robust = [record.change for record in outcome.passes if record.step == "robust"]
+    member = [record.change for record in outcome.passes if record.step == "member size"]
+    assert max(robust) <= 0.05 * (1.0 + 1e-12) and max(member) <= 0.02 * (1.0 + 1e-12)
+    _, wide = run_small()
+    assert max(record.change for record in wide.passes) > 0.05
+
+
+def test_the_best_design_that_meets_its_limits_can_be_returned():
+    # With eps 1e-3, five member-size passes and a move limit of 0.5 the last design is 0.6 % over its mass;
+    # the designs before it meet both limits, and the fifth pass's design has the lowest compliance of those.
+    # (At the default 0.1 every design of this step meets both limits and the last is the best.)
+    settings = {"eps": 1e-3, "second_step_passes": 5, "second_step_move_limit": 0.5}
+    with pytest.warns(michell.LimitNotMet):
+        part, last = run_small(second_step_returns="last", **settings)
+    assert not last.result.feasible and last.returned_pass == 6
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", michell.LimitNotMet)  # the returned design meets its limits: no warning
+        _, best = run_small(second_step_returns="best", **settings)
+    assert best.passes == last.passes and best.result.passes == last.result.passes
+    member = [record for record in best.passes if record.step == "member size"]
+    feasible = [r for r in member if r.limits[0] <= part.mass_g * 1.001 and r.limits[1] <= best.eps * 1.001]
+    assert best.returned_pass == min(feasible, key=lambda r: r.goal).number == 5
+    # The goal again to the solver's accuracy (its solves start from other states), the limits exactly.
+    assert best.result.feasible and best.result.goal == pytest.approx(member[4].goal, rel=1e-6)
+    assert best.result.limits == pytest.approx(member[4].limits, rel=1e-9)
+    # Every field describes the returned design: a fresh evaluation of its x gives the same.
+    assert np.array_equal(best.x, best.result.x)
+    keep = part.keep_solid
+    filtered = best.member_size.filter.forward(keep.forward(best.x))
+    assert np.array_equal(best.filtered, filtered) and np.array_equal(best.result.designs["filtered"], filtered)
+    assert np.array_equal(best.nominal, keep.forward(michell.Projection(32.0, 0.5).forward(filtered)))
+    loads = part.problem.cases[0].loads
+    compliance = michell.dot(loads, part.problem.solve(best.nominal, loads)[0])
+    assert best.result.goal == pytest.approx(compliance, rel=1e-6)
+    assert best.result.stop_reason == "passes"
+
+
+def test_the_last_design_is_returned_with_a_warning_when_none_meets_its_limits():
+    with pytest.warns(michell.LimitNotMet):
+        _, last = run_small(second_step_passes=3, second_step_returns="last")
+    with pytest.warns(michell.LimitNotMet):
+        _, best = run_small(second_step_passes=3, second_step_returns="best")
+    assert best.returned_pass == last.returned_pass == 4
+    assert np.array_equal(best.x, last.x) and best.result.goal == last.result.goal
+
+
 def test_the_recipe_runs_on_a_2d_grid():
     grid = michell.Grid(16, 8, 1.0, 1.0)
     held = np.zeros(grid.n_dofs, dtype=bool)
@@ -134,6 +184,10 @@ def test_an_engine_error_names_its_step_and_pass():
         ({"spread": 0.5}, "spread"),
         ({"passes_per_bound": 0}, "passes_per_bound"),
         ({"second_step_passes": True}, "whole number"),
+        ({"move_limit": 0.0}, "move limit"),
+        ({"second_step_move_limit": 1.5}, "move limit"),
+        ({"second_step_move_limit": "0.2"}, "move limit"),
+        ({"second_step_returns": "first"}, "second_step_returns"),
         ({"eps": -1e-7}, "eps"),
         ({"callback": 3}, "callable"),
     ],

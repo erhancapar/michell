@@ -83,7 +83,7 @@ README_3D_OWN_LINES = {
     'problem = michell.Problem(grid, held, steel, [michell.LoadCase("tip", loads)], threads=4)',
     "pde_filter = michell.HelmholtzFilter(grid, 2.5, threads=4)",
     "passes=120,",
-    'print(f"compliance {result.passes[0].goal:.4g} -> {result.passes[-1].goal:.4g} N mm")',
+    'print(f"compliance {result.passes[0].goal:.4g} -> {result.goal:.4g} N mm")',
 }
 
 

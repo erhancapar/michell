@@ -19,11 +19,17 @@ density filter, two optimisers (optimality criteria and the method of moving asy
 and mass responses. The 3D engine is analysis on a grid of cube elements whose stiffness matrix is never
 assembled, solved on several threads by conjugate gradients preconditioned with multigrid, together with the
 Helmholtz filter, the projection and several designs from one set of variables (the robust formulation),
-optimised by the method of moving asymptotes with the same responses. Both are checked against closed-form
-solutions, finite differences, a published reference code, published optima and, in 3D, the finite-element
-program CalculiX on the same mesh, in the [verification table](docs/verification.md). CAD input, the problem
-file and a command-line tool that runs it are not yet implemented, the run-time and memory measurements that
-complete milestone 2 are not yet published, and no release has been published.
+optimised by the method of moving asymptotes with the same responses. Of the modelling features planned for
+milestone 3, four are already available in both engines: several load cases, elements outside the part,
+regions held solid, and a limit on the minimum member size (after Zhou, Lazarov, Wang and Sigmund, 2015). A
+result states the goal and limit values of the design it returns, whether each limit is met, and why the run
+stopped. A complete optimisation with a minimum member size runs from one call (`michell.recipes.stiff_part`),
+supports and loads are placed by position (`michell.select`), and a result can be written to files, among them
+a VTK file for ParaView. Both engines are checked against closed-form solutions, finite differences, a
+published reference code, published optima and, in 3D, the finite-element program CalculiX on the same mesh,
+in the [verification table](docs/verification.md). CAD input, the problem file and a command-line tool that
+runs it are not yet implemented, the run-time and memory measurements that complete milestone 2 are not yet
+published, and no release has been published.
 
 ## Examples
 
@@ -112,7 +118,7 @@ result = michell.optimise(
     x=np.full(grid.n_elements, 0.15),
     passes=120,
 )
-print(f"compliance {result.passes[0].goal:.4g} -> {result.passes[-1].goal:.4g} N mm")
+print(f"compliance {result.passes[0].goal:.4g} -> {result.goal:.4g} N mm")
 ```
 
 ![Three grey views of the optimised 3D cantilever: from the side, from above and from the free end](docs/images/cantilever_3d.png)

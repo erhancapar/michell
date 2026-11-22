@@ -27,14 +27,10 @@ from michell.member_size import MemberSize, member_threshold
 from michell.mma import MovingAsymptotes
 from michell.optimise import Limit, Result, optimise
 from michell.problem import Problem
+from michell.recipes import EPS_OF_FIGURE_8, member_size_bound  # eps of figure 8 of Zhou et al. (2015)
 from michell.responses import Compliance, Mass
 from michell.row import CLOSED_FORM, DESIGN_PROPERTY, GRADIENT, INDEPENDENT_COMPUTATION, Row, checked, g3, not_run
 from michell.verification.mbb import mbb_problem
-
-# eps of the member-size limit read from figure 8 of Zhou et al. (2015) for the filter radius r in elements
-# (with c = r^4): the figure's markers on its logarithmic axis, read by interpolating between the decades
-# in the drawing's own coordinates.
-EPS_OF_FIGURE_8 = {3: 1e-6, 4: 3e-7, 5: 1e-7, 6: 7.5e-8, 7: 6e-8, 8: 5.5e-8, 9: 5e-8, 10: 5e-8}
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -341,7 +337,7 @@ def squared_gradient(grid, field: np.ndarray) -> np.ndarray:
 # elements thick over the whole height, held solid. With the plate, the flange is solid and the wall too.
 
 ROW_26_SIZE = 8
-ROW_26_EPS = EPS_OF_FIGURE_8[8]
+ROW_26_EPS = member_size_bound(8)
 
 
 def member_value(dimension: int, thickness: int, against_empty_face: bool = False) -> tuple[float, float]:
@@ -510,7 +506,7 @@ ROW_27_START = 0.5
 ROW_27_BETAS = (1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
 ROW_27_PASSES_PER_STEP = 50
 ROW_27_PASSES_WITH_LIMIT = 300
-ROW_27_EPS = EPS_OF_FIGURE_8[int(ROW_27_SIZE)]
+ROW_27_EPS = member_size_bound(ROW_27_SIZE)
 ROW_27_EPS_FACTORS = (1.0, 1.0 + 1e-9, 1.0 + 1e-6)
 ROW_27_OUTSIDE = {"x-": "closed", "x+": "empty", "y-": "empty", "y+": "empty"}
 

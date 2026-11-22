@@ -20,6 +20,9 @@ the 3D analysis with CalculiX on the same voxels; it reads CalculiX's numbers fr
 on a 3D grid against a direct computation and the derivative of the member-size limit against finite
 differences, row 26 checks that the limit tells a thin member from a thick one, and row 27 runs an MBB
 beam with the limit and measures its members by a morphological opening (SciPy; "not run" without it).
+Row 28 runs the two-step procedure of ``michell.recipes.stiff_part`` on a 3D bridge and measures its mass,
+its discreteness, its members (the opening of row 27 in 3D) and what the member-size step cost in
+stiffness (SciPy; "not run" without it).
 """
 
 from __future__ import annotations
@@ -73,11 +76,12 @@ from michell.verification.solver3d_rows import (
 )
 from michell.verification.mma_rows import row_9_published_optima, row_10_mbb_with_mma
 from michell.verification.optimisation_rows import row_7_gradients, row_8_mbb_with_oc
+from michell.verification.recipe_rows import row_28_recipe_bridge
 from michell.verification.robust_rows import row_21_projection, row_22_robust_gradients, row_23_robust_mbb
 
 
 def all_rows(reference: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 27 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
+    """Runs rows 1 to 28 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
     the repository: ``tests/reference``)."""
     rows = []
     rows += row_1_element_matrix()
@@ -115,6 +119,7 @@ def all_rows(reference: Path | str | None = None) -> list[Row]:
     rows += row_25_member_size_gradients()
     rows += row_26_thin_and_thick()
     rows += row_27_member_size_mbb()
+    rows += row_28_recipe_bridge()
     return rows
 
 
@@ -163,4 +168,5 @@ __all__ = [
     "row_25_member_size_gradients",
     "row_26_thin_and_thick",
     "row_27_member_size_mbb",
+    "row_28_recipe_bridge",
 ]

@@ -20,7 +20,8 @@ designs of a robust optimisation (Wang, Lazarov and Sigmund, Struct. Multidisc. 
 mass, their discreteness (the measure of Sigmund, Struct. Multidisc. Optim. 33, 2007) and the order of their
 compliances, and checks the minimum member size as a limit (Zhou, Lazarov, Wang and Sigmund, Comput. Methods
 Appl. Mech. Engrg. 293, 2015) on thin and thick members and on an optimised beam, whose members it measures by
-a morphological opening. The measure, the set-up and the limit of every row were fixed before its first result
+a morphological opening; and it runs the two-step procedure of `michell.recipes` (the robust formulation,
+then the member-size limit) on a 3D bridge and measures the design it returns. The measure, the set-up and the limit of every row were fixed before its first result
 was computed, with one exception, stated in its note: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
 were set after trial runs. Every limit is an upper bound on the measured value. Measured values are rounded
@@ -38,8 +39,8 @@ From the repository, with the package and SciPy installed:
 Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`, and row 24 the output of
 CalculiX (`tools/reference/make_calculix_reference.py` writes it; CalculiX is not needed to run the row);
 row 9 solves its problems a second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy,
-row 16 solves the 3D system directly with SciPy, and row 27 measures its members with SciPy's morphological
-opening. Without them those rows are listed as not run. The command
+row 16 solves the 3D system directly with SciPy, and rows 27 and 28 measure their members with SciPy's
+morphological opening. Without them those rows are listed as not run. The command
 exits with status 1 when a row fails (and, with `--require-all`, when a row was not run). The test suite runs
 the same functions."""
 

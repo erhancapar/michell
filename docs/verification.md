@@ -13,7 +13,8 @@ designs of a robust optimisation (Wang, Lazarov and Sigmund, Struct. Multidisc. 
 mass, their discreteness (the measure of Sigmund, Struct. Multidisc. Optim. 33, 2007) and the order of their
 compliances, and checks the minimum member size as a limit (Zhou, Lazarov, Wang and Sigmund, Comput. Methods
 Appl. Mech. Engrg. 293, 2015) on thin and thick members and on an optimised beam, whose members it measures by
-a morphological opening. The measure, the set-up and the limit of every row were fixed before its first result
+a morphological opening; and it runs the two-step procedure of `michell.recipes` (the robust formulation,
+then the member-size limit) on a 3D bridge and measures the design it returns. The measure, the set-up and the limit of every row were fixed before its first result
 was computed, with one exception, stated in its note: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
 were set after trial runs. Every limit is an upper bound on the measured value. Measured values are rounded
@@ -101,8 +102,13 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 27 | MBB beam 180 x 60 with the member-size limit: largest share of the solid removed by an opening of 0.9 times the size, over three runs | property of the design | 0.00132 | ≤ 0.05 | pass | three runs that differ only in the bound, eps x (1): 0.132 % removed, g / eps 1, compliance 267 N mm (1.03 times that without the limit); eps x (1 + 1e-9): 0.132 % removed, g / eps 1, compliance 267 N mm (1.03 times that without the limit); eps x (1 + 1e-6): 0.132 % removed, g / eps 1, compliance 267 N mm (1.03 times that without the limit); without the limit 14.7 % removed, compliance 259 N mm, g / eps 1360; value at the switch 7.96e-05; filter faces x- closed, x+ empty, y- empty, y+ empty, a solid pad of 7 x 7 elements at the support (KeepSolid); the measure and its 5 % limit fixed before any run, the size 7 elements, the mass fraction 0.35, the 10 % tolerance on the bound and the 10 % guard set after trial runs (see the set-up above the row); x from 0.5, R = 7, beta 1 to 32 doubling every 50 passes, then 300 passes at beta 32 with eta_e 0.78, c 2400, eps 6e-08 and the limit's scale its value at the switch; MMA |
 | 27 | MBB beam 180 x 60 with the member-size limit: the limit met at the end, largest g / (1.1 bound) over three runs | property of the design | 0.909 | ≤ 1 | pass | the same three runs, g / bound 1, 1, 1; the limit's bound eps is read off a figure and met only to the optimiser's accuracy |
 | 27 | MBB beam 180 x 60 without the member-size limit: share removed by the same opening at least 10 % | property of the design | 0.679 | ≤ 1 | pass | measured 0.1 / share, share 14.7 %, twice the 5 % limit: the limit has work to do |
+| 28 | Two-step recipe on a 3D bridge 50 x 24 x 10: nominal mass over the asked mass | property of the design | 1 | ≤ 1 | pass | mass 28.3 g; steel block of 50 x 24 x 10 elements of 1 mm, clamped at x = 0 and x = 50, 1000 N down on a pad of 6 x 6 elements in the middle of the top; held solid: end plates 2 elements thick and the pad, 6 x 6 x 2; member size 5 mm, asked mass 30 % of the block (28.3 g); filter x faces closed, y and z faces empty; default settings (140 passes); member-size value 1e-07 against eps 1e-07 (g / eps 1), limits met (True, True), stop reason passes; limits fixed before any run |
+| 28 | Two-step recipe on a 3D bridge 50 x 24 x 10: bodies of the design thresholded at 0.5, joined through faces | property of the design | 1 | ≤ 1 | pass | 3584 solid elements of 12000 |
+| 28 | Two-step recipe on a 3D bridge 50 x 24 x 10: grey share, mean of 4 rho (1 - rho) over the design elements | property of the design | 0.0316 | ≤ 0.05 | pass | over 10968 design elements |
+| 28 | Two-step recipe on a 3D bridge 50 x 24 x 10: share of the solid removed by an opening of 0.9 times the member size | property of the design | 0.0458 | ≤ 0.05 | pass | a ball of diameter 4.5 elements; beyond the clamped faces solid (the support), beyond the free faces empty, the rule fixed before any run |
+| 28 | Two-step recipe on a 3D bridge 50 x 24 x 10: compliance over that at the end of the robust step | property of the design | 0.913 | ≤ 1.1 | pass | compliance 8.95 N mm, at the end of the robust step 9.81 N mm |
 
-76 passed, 0 failed, 0 not run.
+81 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 
@@ -113,7 +119,7 @@ From the repository, with the package and SciPy installed:
 Rows 6, 8 and 10 read the output of the 88-line code from `tests/reference`, and row 24 the output of
 CalculiX (`tools/reference/make_calculix_reference.py` writes it; CalculiX is not needed to run the row);
 row 9 solves its problems a second time with SciPy, row 14 assembles the 3D stiffness matrix with SciPy,
-row 16 solves the 3D system directly with SciPy, and row 27 measures its members with SciPy's morphological
-opening. Without them those rows are listed as not run. The command
+row 16 solves the 3D system directly with SciPy, and rows 27 and 28 measure their members with SciPy's
+morphological opening. Without them those rows are listed as not run. The command
 exits with status 1 when a row fails (and, with `--require-all`, when a row was not run). The test suite runs
 the same functions.

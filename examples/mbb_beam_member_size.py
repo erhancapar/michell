@@ -101,7 +101,7 @@ for beta in (1.0, 2.0, 4.0, 8.0, 16.0, 32.0):
 
 # Step 2: the member-size limit switched on at beta 32, on the design "filtered" (the filtered field).
 member_size = michell.MemberSize(density_filter, projection, michell.member_threshold(density_filter, size))
-eps = 6e-8  # figure 8 of Zhou et al. (2015) at r = 7
+eps = michell.recipes.member_size_bound(size)  # 6e-8: figure 8 of Zhou et al. (2015) at r = 7
 at_switch = member_size.evaluate(grid, density_filter.forward(x))[0]
 size_limit = michell.Limit(michell.on("filtered", member_size), at_most=eps, scale=max(at_switch, eps))
 print(f"limit switched on: eta_e {member_size.threshold:.4f}, c {member_size.c:g}, value {at_switch:.3g}")

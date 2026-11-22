@@ -20,6 +20,9 @@ The package holds:
 - the optimisation loop ``optimise`` with its ``Limit``, its ``Result`` and the ``LimitNotMet`` warning,
   the ``OptimalityCriteria`` optimiser (the engine's ``Oc`` update), the ``MovingAsymptotes`` optimiser
   (the engine's ``Mma`` update), and the finite-difference gradient check ``check_gradient``;
+- ``michell.recipes``: whole procedures from one call; ``stiff_part``, the stiffest part of a given mass
+  with a minimum member size (the robust formulation, then the member-size limit), and
+  ``member_size_bound``, the bound of that limit for a filter radius in elements;
 - ``dot``, the dot product of two vectors in the engine, for responses (with the OpenBLAS build that NumPy
   ships, ``a @ b`` runs long products on every core);
 - ``EngineError``, the error every engine call raises; the checks written in Python raise it too, with
@@ -54,6 +57,8 @@ from michell.modules import Filter, Partials, Response
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, LimitNotMet, Pass, Result, optimise
 from michell.problem import LoadCase, Material, Problem
+from michell import recipes
+from michell.recipes import RecipePass, StiffPart, member_size_bound, stiff_part
 from michell.responses import Compliance, Mass
 from michell.row import Row
 
@@ -87,9 +92,11 @@ __all__ = [
     "Pass",
     "Problem",
     "Projection",
+    "RecipePass",
     "Response",
     "Result",
     "Row",
+    "StiffPart",
     "__version__",
     "check_gradient",
     "check_on_small_problem",
@@ -97,8 +104,11 @@ __all__ = [
     "element_stiffness",
     "element_stiffness_3d",
     "engine_version",
+    "member_size_bound",
     "member_threshold",
     "on",
     "optimise",
+    "recipes",
     "robust_designs",
+    "stiff_part",
 ]

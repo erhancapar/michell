@@ -135,7 +135,8 @@ x  ->  filters  ->  rho  -+->  design filters of "eroded"   ->  rho_eroded   -> 
   The goal therefore reads `eroded` alone, and one solve per load case replaces three. The mass limit sits
   on `dilated`, the heaviest; its bound is rescaled between continuation steps so that `nominal` meets the
   asked mass (the rule as stated by Kumar and Langelaar, Mech. Mach. Theory, 2022). Continuation (raising `beta`) and that rescaling are a loop over
-  `beta` in the user's script that calls `optimise` again from the last x; the library holds no schedule.
+  `beta` in the user's script that calls `optimise` again from the last x; the loop holds no schedule
+  (`michell.recipes`, below, writes one out).
 
 ## The minimum member size: a limit on the filtered design
 
@@ -191,6 +192,13 @@ writes the whole procedure out, and verification row 27 runs it.
   compliance several times higher), so a run must check that the bound is met: `Result.limits_met` says so,
   and `optimise` warns (`LimitNotMet`) when it is not.
 - Only the solid phase is built; the paper's constraint on holes (the void phase) is not.
+
+`michell.recipes.stiff_part(problem, mass_g, size_mm, keep_solid, filters, outside=..., ...)` writes the
+two procedures above out as one function: the robust set with the continuation of `beta` and the bound on the
+dilated mass set again every few passes, then the member-size limit switched on at beta 32, with its bound
+from figure 8 (`member_size_bound`). It is built from the public pieces only, holds no state between calls,
+and returns the fields, the last `Result` and a record of every pass; its docstring states each setting and
+the procedure's limits, and verification row 28 runs it on a 3D bridge.
 
 ## Two small examples
 

@@ -138,7 +138,11 @@ def test_the_parent_saves_after_every_size_records_every_failure_and_ends_with_1
     host = socket.gethostname()
     seen = []
 
+    launch = subprocess.run
+
     def child(command, **settings):
+        if command[0] != sys.executable:  # not a size's process: the machine's description asks the system (macOS)
+            return launch(command, **settings)
         seen.append(len(json.loads(out.read_text(encoding="utf-8"))["sizes"]) if out.exists() else None)
         size = int(command[3])
         if size == completed["size"]:

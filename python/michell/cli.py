@@ -148,6 +148,7 @@ def _mesh_summary(outcome: RunOutcome) -> dict | None:
         "mass_g": finished.mass_g,
         "compliance_difference": finished.delivered.goal_difference,
         "changed_share": finished.delivered.changed_share,
+        "stl_refused": outcome.stl_refused,
         "seconds": outcome.mesh_seconds,
     }
 
@@ -229,6 +230,9 @@ def _run(args) -> int:
             f"the voxels change side ({'within' if mesh['delivered'] else 'NOT within'} "
             f"{100 * DELIVERED_TOLERANCE:g} %)"
         )
+        if mesh["stl_refused"] is not None:
+            kept = " (part.3mf is written)" if "3mf" in summary["files"] else ""
+            print(f"part.stl not written: {mesh['stl_refused']}{kept}")
     elif mesh is not None:
         print(f"mesh refused, not written: {mesh['refused']['message']}")
     print("written: " + ", ".join(summary["files"].values()))

@@ -52,7 +52,7 @@ from michell.errors import (
 )
 from michell.export import _plain, write_result, write_vtk
 from michell.mesh import Mesh, read_stl, write_3mf, write_stl
-from michell.part_mesh import FinishedPart, MeshRefused, StlRounding, finish
+from michell.part_mesh import FinishedPart, MeshRefused, StlRefused, StlRounding, finish
 from michell.problem import Material
 from michell.recipes import RecipePass, StiffPart
 from michell.regions import VoxelModel, voxel_model
@@ -974,8 +974,12 @@ class RunOutcome:
     - ``seconds``: the seconds the optimisation took (``prepared.seconds`` those of the preparation).
     - ``warnings``: every warning given while preparing and running (``WarningRecord``).
     - ``finished``: the part's mesh (``michell.part_mesh.FinishedPart``) when ``[output] mesh`` asks for it
-      and every gate passed, else None; ``mesh_refused``: the ``MeshRefused`` of a mesh that failed a gate
-      (no mesh file is then written), else None; ``mesh_seconds``: the seconds the mesh took (None without).
+      and every gate passed (its files are then written, but for a refused ``part.stl``), else None;
+      ``mesh_refused``: the ``MeshRefused`` of a mesh that failed a gate (no mesh file is then written), else
+      None; ``mesh_seconds``: the seconds the mesh took (None without).
+    - ``stl_refused``: why ``part.stl`` was not written, when ``michell.mesh.write_stl`` refused the mesh
+      (its float32 coordinates would not read back closed; ``part.3mf`` and the result are written all the
+      same, with the warning ``michell.part_mesh.StlRefused``), else None.
     """
 
     prepared: Prepared
@@ -986,6 +990,7 @@ class RunOutcome:
     finished: FinishedPart | None = None
     mesh_refused: MeshRefused | None = None
     mesh_seconds: float | None = None
+    stl_refused: str | None = None
 
     @property
     def limits_met(self) -> bool:
@@ -994,11 +999,12 @@ class RunOutcome:
 
     @property
     def mesh_delivered(self) -> bool:
-        """Whether the mesh asked for was written and is the optimised part: every gate passed and the
-        delivered-part check is within its tolerance. True when no mesh is asked for."""
+        """Whether the mesh asked for was written and is the optimised part: every gate passed, every file
+        asked for was written (``part.stl`` was not refused) and the delivered-part check is within its
+        tolerance. True when no mesh is asked for."""
         if not self.prepared.problem_file.mesh:
             return True
-        return self.finished is not None and self.finished.delivered.within
+        return self.finished is not None and self.finished.delivered.within and self.stl_refused is None
 
 
 def _optimise(
@@ -1055,16 +1061,30 @@ def _optimise(
             active=prepared.model.active,
         )
     mesh_record = None
+    stl_refused = None
     if pf.mesh:
         if finished is not None:
             for kind in pf.mesh:
-                paths[kind] = (folder / MESH_NAME).with_suffix(f".{kind}")
-                (write_stl if kind == "stl" else write_3mf)(paths[kind], finished.mesh)
+                path = (folder / MESH_NAME).with_suffix(f".{kind}")
+                if kind == "stl":
+                    try:
+                        write_stl(path, finished.mesh)
+                    except InvalidValue as error:
+                        # The other files and the result are written all the same; a part.stl of an
+                        # earlier run in this folder would not be this mesh, so it is removed.
+                        stl_refused = error.message
+                        path.unlink(missing_ok=True)
+                        records += (WarningRecord(StlRefused, f"part.stl is not written: {stl_refused}"),)
+                        continue
+                else:
+                    write_3mf(path, finished.mesh)
+                paths[kind] = path
             mesh_record = finished.summary()
             mesh_record["written"] = True
             mesh_record["stl_distinct_float32_vertices"] = (
                 int(len(np.unique(finished.mesh.vertices.astype(np.float32), axis=0))) if "stl" in pf.mesh else None
             )
+            mesh_record["stl_refused"] = stl_refused
         else:
             mesh_record = {
                 "written": False,
@@ -1089,7 +1109,7 @@ def _optimise(
     write_result(base, part, record=record)
     return RunOutcome(
         prepared=prepared, part=part, paths=paths, seconds=seconds, warnings=records, finished=finished,
-        mesh_refused=refused, mesh_seconds=mesh_seconds,
+        mesh_refused=refused, mesh_seconds=mesh_seconds, stl_refused=stl_refused,
     )  # fmt: skip
 
 
@@ -1115,7 +1135,11 @@ def run(
       mesh (``michell.part_mesh.finish``), and a ``mesh`` section in ``result.json`` (the level, the
       triangles, the volume and masses, the loose pieces and cavities, every gate with its numbers, the
       delivered-part check). A mesh that fails a gate is not written; the section then holds the refusal
-      (``RunOutcome.mesh_refused``). STL stores float32 coordinates, 3MF the float64 ones.
+      (``RunOutcome.mesh_refused``). STL stores float32 coordinates, 3MF the float64 ones; a mesh whose
+      float32 coordinates would not read back closed is not written as ``part.stl`` (``write_stl`` refuses
+      it), while ``part.3mf`` and the result are written all the same, with ``stl_refused`` in the ``mesh``
+      section and ``RunOutcome.stl_refused`` holding the reason, and the warning
+      ``michell.part_mesh.StlRefused``.
 
     ``callback`` is passed to ``stiff_part`` (called after every pass with the step, the pass number and its
     ``RecipePass``). Returns a ``RunOutcome`` (the outcome and the paths). A design that misses a limit is

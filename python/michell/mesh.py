@@ -396,16 +396,38 @@ def smallest_joined(n: int, first: np.ndarray, second: np.ndarray) -> np.ndarray
 def write_stl(path, mesh: Mesh) -> None:
     """Writes ``mesh`` as a binary STL file (coordinates rounded to float32, as the format stores them), with
     the unit normal of each triangle (zero for a triangle without area) and a header that does not start
-    with "solid"."""
+    with "solid".
+
+    Where vertices round to the same float32 point, the file joins them when it is read: a triangle two of
+    whose corners round together is left out (it has no area in the file), and if the mesh is closed
+    (``closed()`` would take it) but would not read back closed, the file is not written and the write is
+    refused (``InvalidValue``), naming the vertices that round together."""
     if not isinstance(mesh, Mesh):
         raise InvalidType(f"write_stl writes a michell.mesh.Mesh; got {type(mesh).__name__}")
-    a, b, c = mesh._corners()
+    corners = mesh.vertices.astype(np.float32)[mesh.triangles]
+    kept = np.ones(len(mesh.triangles), dtype=bool)
+    if len(np.unique(corners.reshape(-1, 3), axis=0)) < len(np.unique(mesh.triangles)):
+        kept = ~(np.all(corners[:, 0] == corners[:, 1], axis=1) | np.all(corners[:, 1] == corners[:, 2], axis=1)
+                 | np.all(corners[:, 2] == corners[:, 0], axis=1))  # fmt: skip
+        vertices, triangles = _join_corners(corners[kept].reshape(-1, 3).astype(np.float64), 0.0)
+        edges = ("open_edges", "edges_on_more_than_two", "edges_same_direction")
+        before = mesh.defects()
+        after = Mesh(vertices, triangles).defects()
+        if not any(before[k] for k in edges) and any(after[k] for k in edges):
+            joined = len(np.unique(mesh.triangles)) - len(vertices)
+            raise InvalidValue(
+                f"the mesh is closed, but as float32 coordinates (as an STL file stores them) {joined} of its "
+                f"vertices round onto another one and the file would not read back closed "
+                f"({', '.join(f'{after[k]} {k}' for k in edges if after[k])}); write it as 3MF, which keeps "
+                "every coordinate"
+            )
+    a, b, c = (mesh.vertices[mesh.triangles[kept, i]] for i in range(3))
     normal = np.cross(b - a, c - a)
     length = np.linalg.norm(normal, axis=1)
     normal = np.divide(normal, length[:, None], out=np.zeros_like(normal), where=length[:, None] > 0)
-    records = np.zeros(len(mesh.triangles), dtype=_STL_RECORD)
+    records = np.zeros(int(np.count_nonzero(kept)), dtype=_STL_RECORD)
     records["normal"] = normal
-    records["corners"] = mesh.vertices[mesh.triangles]
+    records["corners"] = corners[kept]
     Path(path).write_bytes(_STL_HEADER + len(records).to_bytes(4, "little") + records.tobytes())
 
 

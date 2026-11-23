@@ -144,6 +144,92 @@ def test_the_faces_of_the_regions_are_exact():
     assert finished.gate("void outside").numbers["void_voxels"] > 0
 
 
+def _box_with_a_sliver(gap: float, low: float = 100.0) -> mesh.Mesh:
+    """A closed box from ``low`` to ``low`` + 100 mm on each axis whose edge from corner 0 to corner 1 is split
+    by a vertex ``gap`` mm from corner 0, so that two slivers with a side of ``gap`` lie at that edge."""
+    box = mesh.box((low, low, low), (low + 100.0, low + 100.0, low + 100.0))
+    v, t = box.vertices, box.triangles
+    a, b = (int(x) for x in t[0, :2])
+    split = len(v)
+    rows = []
+    for row in t.tolist():
+        for k in range(3):
+            p, q, r = row[k], row[(k + 1) % 3], row[(k + 2) % 3]
+            if {p, q} == {a, b}:
+                rows += [[p, split, r], [split, q, r]]
+                break
+        else:
+            rows.append(row)
+    return mesh.Mesh(np.vstack([v, v[a] + gap * (v[b] - v[a]) / np.linalg.norm(v[b] - v[a])]), np.array(rows))
+
+
+def test_vertices_that_round_together_in_float32_are_joined():
+    setup, _ = small()
+    exact = part_mesh._exact(part_mesh._source(setup, None))
+    sliver = _box_with_a_sliver(1e-7)
+    ids = np.full(len(sliver.triangles), exact.organic_id)
+    joined, joined_ids, count = part_mesh._single_precision(sliver, ids, exact)
+    assert count == 1 and len(joined.triangles) == 12 and len(joined_ids) == 12
+    assert joined.closed() is joined
+    assert len(np.unique(joined.vertices.astype(np.float32), axis=0)) == len(joined.vertices)
+    # Two vertices that round together but share no edge (two bodies) are left as they are.
+    other = mesh.box((200.0 + 1e-7, 200.0, 200.0), (300.0, 300.0, 300.0))
+    apart = mesh.Mesh(np.vstack([mesh.box((100.0,) * 3, (200.0,) * 3).vertices, other.vertices]),
+                      np.vstack([mesh.box((100.0,) * 3, (200.0,) * 3).triangles, other.triangles + 8]))  # fmt: skip
+    same, _, count = part_mesh._single_precision(apart, np.full(24, exact.organic_id), exact)
+    assert count == 0 and same is apart
+    # Far enough apart for float32, nothing changes.
+    wide = _box_with_a_sliver(1e-3)
+    assert part_mesh._single_precision(wide, np.full(14, exact.organic_id), exact)[0] is wide
+
+
+def _slanted_pocket(corner: np.ndarray, gap: float) -> mesh.Mesh:
+    """A pocket (a triangular prism swept along a slanted direction) whose edge crosses the plane z =
+    ``corner[2]`` ``gap`` mm from ``corner`` in x and in y, opening towards -x and +y and reaching 2 mm above
+    that plane and 6 mm below it."""
+    q = corner + np.array([-gap, gap, 0.0])
+    base = np.array([q, q + (-6.0, 1.0, 0.0), q + (-1.0, 6.0, 0.0)])
+    sweep = np.array([-1.0, 1.0, -4.0])
+    v = np.vstack([base - 0.5 * sweep, base + 1.5 * sweep])
+    t = np.array([[0, 2, 1], [3, 4, 5], [0, 1, 4], [0, 4, 3], [1, 2, 5], [1, 5, 4], [2, 0, 3], [2, 3, 5]])
+    pocket = mesh.Mesh(v, t)
+    return pocket if pocket.volume_mm3 > 0 else mesh.Mesh(v, t[:, ::-1])
+
+
+def test_a_region_edge_crossing_a_face_next_to_its_corner_is_written_as_a_closed_stl(tmp_path):
+    # A void region's edge crosses the top face of a solid region 1e-7 mm from the face's corner, as a bolt
+    # hole's wall can cross the top of its boss: the cut and join leaves two vertices, the corner and the
+    # crossing, that round to one float32 point (about 8e-6 mm apart there), both on the regions' faces.
+    corner = np.array([130.0, 104.0, 112.0])
+    design = mesh.box((100.0, 100.0, 100.0), (140.0, 120.0, 112.0))
+    solids = {"low": mesh.box((100.0, 100.0, 100.0), (104.0, 120.0, 112.0)),
+              "boss": mesh.box((120.0, 104.0, 100.0), tuple(corner + (0.0, 12.0, 0.0)))}  # fmt: skip
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = michell.voxel_model(design, solids, {"pocket": _slanted_pocket(corner, 1e-7)}, voxel_mm=VOXEL)
+        setup = michell.set_up(model, michell.Material(210000.0, 0.3, 7.85), [michell.Support("low")],
+                               [michell.Case("pull", [michell.Load("boss", (0.0, 0.0, -1000.0))])], 5.0)  # fmt: skip
+    exact = part_mesh._exact(part_mesh._source(setup, None))
+    organic = mesh.box((101.0, 101.0, 101.0), (121.5, 119.0, 111.0))  # joins the two solid regions
+    cut, ids, _ = part_mesh._finished(organic, exact)
+    rounded = cut.vertices.astype(np.float32)
+    _, group, counts = np.unique(rounded, axis=0, return_inverse=True, return_counts=True)
+    assert counts.max() == 2 and np.count_nonzero(counts > 1) == 1
+    pair = np.flatnonzero(group.ravel() == np.flatnonzero(counts > 1)[0])
+    assert np.all(np.abs(cut.vertices[pair] - corner).max(axis=1) <= 1e-7)
+    touching = np.isin(cut.triangles, pair).any(axis=1)
+    assert np.all(ids[touching] != exact.organic_id)  # every triangle there is a region's face
+    joined, joined_ids, count = part_mesh._single_precision(cut, ids, exact)
+    assert count == 1 and joined.closed() is joined
+    assert len(np.unique(joined.vertices.astype(np.float32), axis=0)) == len(joined.vertices)
+    assert part_mesh._interface_gate(joined, joined_ids, exact).passed
+    path = tmp_path / "pocket.stl"
+    mesh.write_stl(path, joined)
+    back = mesh.read_stl(path)
+    assert back.closed() is back and len(back.bodies()) == 1
+    assert len(back.triangles) == len(joined.triangles) and len(back.vertices) == len(joined.vertices)
+
+
 def test_without_region_meshes_the_cut_is_the_grid_box_and_exactness_is_not_claimed():
     setup, part = small()
     finished = quiet(part, setup.problem, setup.keep_solid)
@@ -367,6 +453,7 @@ def test_a_level_off_target_warns(monkeypatch):
 
 def test_the_names_are_exported():
     assert michell.finish is finish and michell.FinishedPart is FinishedPart
-    for name in ("MeshRefused", "DeliveredPartDiffers", "GenusDiffers", "LevelOffTarget", "StlRounding"):
+    names = ("MeshRefused", "DeliveredPartDiffers", "GenusDiffers", "LevelOffTarget", "StlRounding", "StlRefused")
+    for name in names:
         assert getattr(michell, name) is getattr(part_mesh, name) and name in michell.__all__
     assert "part_mesh" in michell.__all__ and "finish" in michell.__all__

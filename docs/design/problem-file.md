@@ -154,9 +154,9 @@ paths of the files written, the seconds, the warnings and, when a mesh is asked 
 `--json` makes either command print one JSON object on standard output and nothing else (`run` then prints
 its pass lines on standard error). The exit status is 0 when the file is accepted (`check`) or the run met
 its limits and delivered the mesh asked for (`run`); 1 when the run finished but a limit is not met or the
-delivered mesh differs: the mesh failed a gate and was not written, or the mesh voxelised back on the run's
-grid has a compliance more than 5 % from the optimised design's (warning `DeliveredPartDiffers`); the design
-and whatever passed are written all the same; 2
+delivered mesh differs: the mesh failed a gate and was not written, the mesh voxelised back on the run's
+grid has a compliance more than 5 % from the optimised design's (warning `DeliveredPartDiffers`), or
+`part.stl` was refused (warning `StlRefused`); the design and whatever passed are written all the same; 2
 when the input is refused, which is anything refused before the first pass: the problem file, the
 geometry, the set-up, a part that is not held against rigid motion (`singular_system`), an output folder
 that cannot be made, and the command line itself (a bad option is refused with a usage line on standard
@@ -184,9 +184,12 @@ wrong (code `internal_error`).
 - `result.vtk` with `fields = ["vtk"]`: the nominal design, the design after the robust step, the voxels
   held solid and the active voxels, for ParaView;
 - `part.stl` and `part.3mf` with `mesh = ["stl", "3mf"]`: the part's closed mesh, the same triangles in
-  both. STL stores single-precision coordinates (about 1e-5 mm on a 100 mm part), 3MF the double-precision
+  both (but for a triangle that loses its area in single precision, which the STL file leaves out). STL stores single-precision coordinates (about 1e-5 mm on a 100 mm part), 3MF the double-precision
   ones, so the 3MF file keeps the regions' faces exact; a mesh whose STL would join vertices gives the
-  warning `StlRounding`. A mesh that fails a gate is not written.
+  warning `StlRounding`. A mesh that would not read back closed from single-precision coordinates is not
+  written as `part.stl` (`michell.write_stl` refuses it): `part.3mf` and the result are written all the same,
+  the `mesh` section holds the reason in `stl_refused` (null otherwise), and the run warns `StlRefused`. A mesh
+  that fails a gate is not written.
 
 A refused input is reported the same way every time: a stable code, the key's place in the file, the file
 and a sentence for people (with `--json`, `{"code", "path", "file", "message", "details"}`). The codes of

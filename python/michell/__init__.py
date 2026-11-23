@@ -42,7 +42,7 @@ The package holds:
   outcome of ``stiff_part`` and its set-up: the organic surface cut by the envelope, joined with the exact
   solid regions and cut by the exact void regions (manifold3d), with its level, gates and the check of the
   delivered part, as a ``FinishedPart``; the refusal ``MeshRefused`` and the warnings
-  ``DeliveredPartDiffers``, ``GenusDiffers``, ``LevelOffTarget`` and ``StlRounding``;
+  ``DeliveredPartDiffers``, ``GenusDiffers``, ``LevelOffTarget``, ``StlRounding`` and ``StlRefused``;
 - ``michell.regions``: ``occupancy``, the share of every voxel of a grid inside a union of meshes minus
   another (the engine's voxeliser), and ``voxel_model``, the ``VoxelModel`` of a part from its design, solid
   and void regions (the grid, the active and the held-solid voxels, a volume table, the bodies, an optional
@@ -102,6 +102,7 @@ from michell.part_mesh import (
     GenusDiffers,
     LevelOffTarget,
     MeshRefused,
+    StlRefused,
     StlRounding,
     finish,
 )
@@ -163,6 +164,7 @@ __all__ = [
     "SetUp",
     "Smoothing",
     "StiffPart",
+    "StlRefused",
     "StlRounding",
     "Support",
     "VolumeRow",

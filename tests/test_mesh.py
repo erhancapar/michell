@@ -238,6 +238,64 @@ def test_bodies_with_wrong_dimensions_are_refused(call):
         call()
 
 
+def box_with_a_sliver(gap: float) -> Mesh:
+    """A closed box 100 mm across, from 100 to 200 mm on each axis, whose edge from corner 0 to corner 1 is
+    split by a vertex ``gap`` mm from corner 0: the two triangles on that edge become four, two of them
+    slivers with a side of ``gap``."""
+    body = mesh.box((100.0, 100.0, 100.0), (200.0, 200.0, 200.0))
+    v, t = body.vertices, body.triangles
+    a, b = (int(x) for x in t[0, :2])
+    split = v[a] + gap * (v[b] - v[a]) / np.linalg.norm(v[b] - v[a])
+    w = len(v)
+    rows = []
+    for row in t:
+        row = [int(x) for x in row]
+        for k in range(3):
+            p, q, r = row[k], row[(k + 1) % 3], row[(k + 2) % 3]
+            if {p, q} == {a, b}:
+                rows += [[p, w, r], [w, q, r]]
+                break
+        else:
+            rows.append(row)
+    return Mesh(np.vstack([v, split]), np.array(rows))
+
+
+def test_vertices_closer_than_float32_spacing_are_written_as_a_closed_stl(tmp_path):
+    # Between 100 and 200 mm, float32 holds about 8e-6 mm: a vertex 1e-7 mm from a corner rounds onto it.
+    # The two slivers at that edge have no area in the file and are left out, so the file reads back closed.
+    body = box_with_a_sliver(1e-7)
+    assert body.closed() is body and len(body.triangles) == 14
+    assert len(np.unique(body.vertices.astype(np.float32), axis=0)) == len(body.vertices) - 1
+    path = tmp_path / "sliver.stl"
+    write_stl(path, body)
+    back = read_stl(path)
+    assert back.closed() is back
+    assert len(back.triangles) == 12 and len(back.vertices) == 8
+    assert back.volume_mm3 == pytest.approx(1e6, rel=1e-12)
+    # Far enough apart to stay two float32 points, every triangle is written.
+    apart = box_with_a_sliver(1e-3)
+    write_stl(path, apart)
+    assert len(read_stl(path).triangles) == 14
+
+
+def test_a_closed_mesh_that_would_not_read_back_closed_is_not_written(tmp_path):
+    # Two tetrahedra whose edges p-q and p'-q' round onto one edge: the file would hold that edge on four
+    # triangles.
+    def tetrahedron(p, q, r, s):
+        return np.array([p, q, r, s]), np.array([[0, 2, 1], [0, 1, 3], [1, 2, 3], [0, 3, 2]])
+
+    v1, t1 = tetrahedron((0.0, 0.0, 0.0), (100.0, 0.0, 0.0), (0.0, 100.0, 0.0), (0.0, 0.0, 100.0))
+    v2, t2 = tetrahedron((0.0, 0.0, 1e-7), (100.0, 0.0, 1e-7), (0.0, -100.0, 0.0), (0.0, 0.0, -100.0))
+    if Mesh(v2, t2).volume_mm3 < 0:
+        t2 = t2[:, ::-1]
+    both = Mesh(np.vstack([v1, v2]) + 100.0, np.vstack([t1, t2 + 4]))  # at 100 mm, 1e-7 rounds away
+    assert both.closed() is both
+    path = tmp_path / "pinched.stl"
+    with pytest.raises(ValueError, match="would not read back closed"):
+        write_stl(path, both)
+    assert not path.exists()
+
+
 def test_write_stl_takes_a_mesh(tmp_path):
     with pytest.raises(TypeError):
         write_stl(tmp_path / "x.stl", np.zeros((3, 3)))

@@ -417,8 +417,21 @@ holds about 1e-5 mm on a 100 mm part. `michell run` calls it when the problem fi
   `KeepSolid`, the held voxels are held by the field (1 there), the cut is the grid's box and exactness is
   not claimed (`FinishedPart.exact` is False, and the gate of exact interfaces says so).
 
-STL files store float32 coordinates, so `part.stl` holds the mesh to about 1e-5 mm on a 100 mm part, and
-`michell run` warns (`StlRounding`) if that rounding would join two vertices; `part.3mf` keeps the float64
+STL files store float32 coordinates, so `part.stl` holds the mesh to about 1e-5 mm on a 100 mm part, and a
+reader joins vertices that round to the same float32 point. Where a region's edge crosses another region's
+face a fraction of a micrometre from one of its corners (as a bolt hole's wall can cross the top of its
+boss), the cut leaves two vertices that close: the ends of the short edge of two slivers. Before the gates,
+`finish` joins each such group, when its vertices are joined by edges, onto the vertex that keeps every face
+it touches on its region's plane within 1e-6 mm, and removes the triangles that lose their area; the gates
+then run on the result, so the mesh is closed in float64 and in float32 alike (`float32_vertices_joined` in
+`FinishedPart.smoothing`). The test
+`test_a_region_edge_crossing_a_face_next_to_its_corner_is_written_as_a_closed_stl` (in
+`tests/test_part_mesh.py`) builds that case: a slanted void pocket whose edge crosses the top face of a solid
+block 1e-7 mm from its corner, cut and joined, then written as STL and read back closed and in one piece.
+`write_stl` itself leaves out a triangle two of whose corners round together, and refuses to write a closed
+mesh that would not read back closed; `michell run` still warns (`StlRounding`) if vertices round together,
+and if `write_stl` refuses, it writes `part.3mf` and the result all the same, with the reason in the mesh
+section (`stl_refused`) and the warning `StlRefused`. `part.3mf` keeps the float64
 coordinates bit for bit. Time and memory of `finish` (one level search, the gates and the delivered-part
 check, which solves each load case twice), on the crossing bars scaled up, voxels of 1 mm: 99 528 voxels,
 188 000 triangles, 16 s on one thread with a peak of 264 MB (the two solves 14 s of it); 1.5 million voxels,

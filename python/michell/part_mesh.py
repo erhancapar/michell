@@ -11,7 +11,8 @@
   delivered part (``DeliveredCheck``: the mesh voxelised back on the run's grid and solved once per load case).
 - ``MeshRefused``: the refusal of a mesh that fails a gate (code ``mesh_refused``), naming the gate and the
   numbers. ``DeliveredPartDiffers``, ``GenusDiffers`` and ``LevelOffTarget``: the warnings ``finish`` gives;
-  ``StlRounding``: the warning ``michell run`` gives when float32 STL coordinates would join vertices.
+  ``StlRounding``: the warning ``michell run`` gives when float32 STL coordinates would join vertices, and
+  ``StlRefused`` the one it gives when ``write_stl`` refuses the mesh and ``part.stl`` is not written.
 
 The route, and the reason for each step, are in ``docs/design/geometry.md`` ("From the result to the mesh").
 The cut and join use manifold3d (Apache-2.0) through its 64-bit mesh interface, so that the regions'
@@ -110,7 +111,16 @@ class GenusDiffers(UserWarning):
 
 class StlRounding(UserWarning):
     """Issued by ``michell run`` when ``part.stl``, which stores coordinates as float32, would join vertices
-    of the mesh that round to the same float32 point; ``part.3mf`` keeps every float64 coordinate."""
+    of the mesh that round to the same float32 point; ``part.3mf`` keeps every float64 coordinate. ``finish``
+    joins such vertices itself where it can (``FinishedPart.smoothing``, ``float32_vertices_joined``), and
+    ``write_stl`` never writes a closed mesh that would not read back closed."""
+
+
+class StlRefused(UserWarning):
+    """Issued by ``michell run`` when ``write_stl`` refuses the mesh because, as the float32 coordinates an
+    STL file stores, it would not read back closed: ``part.stl`` is not written, while ``part.3mf`` (which
+    keeps every float64 coordinate) and the result are written all the same, and the reason is in the
+    ``mesh`` section of ``result.json`` (``stl_refused``)."""
 
 
 class LevelOffTarget(UserWarning):
@@ -240,8 +250,9 @@ class FinishedPart:
     - ``gates``: every gate (``Gate``), all passed; ``genus`` and ``voxel_genus`` (reported, a warning when
       they differ); ``delivered``: the ``DeliveredCheck``.
     - ``smoothing``: the Taubin smoothing of the last surface (iterations, largest move in mm, triangles
-      whose normal turned over, the surface's triangles before the cut, and the triangles without area the
-      cut left that were removed by an edge flip); ``settings``: the route's settings; ``seconds``: time per step.
+      whose normal turned over, the surface's triangles before the cut, the triangles without area the cut
+      left that were removed by an edge flip, and the vertices joined because they round to one float32
+      point); ``settings``: the route's settings; ``seconds``: time per step.
 
     ``summary()`` gives all of it as plain data (the ``mesh`` section of ``result.json``).
     """
@@ -625,6 +636,63 @@ def _without_slivers(mesh: Mesh, ids: np.ndarray, rounds: int = 8) -> tuple[Mesh
     return Mesh(v, t), ids, flips
 
 
+def _plane_distance(points: np.ndarray, triangles: np.ndarray, ids: np.ndarray, exact: _Exact) -> np.ndarray:
+    """For each point (one per triangle), its distance from the plane of the region's face the triangle
+    came from (0 for a triangle of the organic surface)."""
+    out = np.zeros(len(triangles))
+    for region in exact.regions:
+        own = (ids >= region.first) & (ids < region.last)
+        if own.any():
+            plane = ids[own] - region.first
+            out[own] = np.abs(np.einsum("ij,ij->i", region.normals[plane], points[own] - region.points[plane]))
+    return out
+
+
+def _single_precision(mesh: Mesh, ids: np.ndarray, exact: _Exact) -> tuple[Mesh, np.ndarray, int]:
+    """Joins vertices that round to the same float32 point, as an STL file stores them, so that the mesh is
+    the same closed mesh in float32. Two such vertices are the ends of a sliver's short edge, left where a
+    region's edge crosses another region's face a fraction of a micrometre from one of its corners. A group
+    is joined only when its vertices are joined by edges, onto the vertex that keeps every triangle of the
+    group on the plane of its region's face within INTERFACE_MM (so no vertex of a region's face leaves its
+    plane); the triangles that lose their area are removed. If the joined mesh would not be closed, the mesh
+    is returned unchanged. Returns the mesh, the face ids and the number of vertices joined."""
+    rounded = mesh.vertices.astype(np.float32)
+    _, group, counts = np.unique(rounded, axis=0, return_inverse=True, return_counts=True)
+    group = group.ravel()
+    if not np.any(counts > 1):
+        return mesh, ids, 0
+    v, t = mesh.vertices, np.array(mesh.triangles)
+    target = np.arange(len(v))
+    joined = 0
+    for g in np.flatnonzero(counts > 1):
+        members = np.flatnonzero(group == g)
+        touching = np.flatnonzero(np.isin(t, members).any(axis=1))
+        inside = np.isin(t[touching], members).sum(axis=1)
+        if np.count_nonzero(inside >= 2) < len(members) - 1:
+            continue  # not joined by edges
+        best, worst = None, math.inf
+        for keep in members:
+            moved = np.where(np.isin(t[touching], members), keep, t[touching])
+            corners = v[moved]
+            far = max(_plane_distance(corners[:, k], t[touching], ids[touching], exact).max() for k in range(3))
+            if far < worst:
+                best, worst = keep, far
+        if worst > INTERFACE_MM:
+            continue
+        target[members] = best
+        joined += len(members) - 1
+    if not joined:
+        return mesh, ids, 0
+    t = target[t]
+    keep = (t[:, 0] != t[:, 1]) & (t[:, 1] != t[:, 2]) & (t[:, 2] != t[:, 0])
+    used, renumbered = np.unique(t[keep], return_inverse=True)
+    result = Mesh(v[used], renumbered.reshape(-1, 3))
+    found = result.defects()
+    if found["open_edges"] + found["edges_on_more_than_two"] + found["edges_same_direction"]:
+        return mesh, ids, 0
+    return result, ids[keep], joined
+
+
 # ---------------------------------------------------------------------------------------------------------
 # Points inside a mesh
 
@@ -819,7 +887,10 @@ def finish(part: StiffPart, setup: SetUp | Problem, keep_solid: KeepSolid | None
        nominal design at 0.5 or more, not held by a solid region; skin voxels count), within 0.2 %.
     5. **Loose pieces**: bodies of positive volume below 1 % of the whole are dropped and listed; a larger
        second body is refused. Closed cavities inside the part are kept and counted.
-    6. **Gates**: closed (after merging equal vertices), no triangle without area, one body, every held
+    6. **Float32**: vertices that round to the same float32 point (the ends of a sliver's short edge, as an STL
+       file would join them) are joined onto the one that keeps every face on its region's plane, and the
+       triangles that lose their area are removed.
+       **Gates**: closed (after merging equal vertices), no triangle without area, one body, every held
        voxel's centre inside and every void voxel's centre outside, exact interfaces (every vertex of a
        triangle taken from a region on the plane of the region's face within 1e-6 mm, and no vertex inside a
        void region's wall that is not the void mesh's own). A mesh that fails one is refused (``MeshRefused``).
@@ -935,6 +1006,8 @@ def finish(part: StiffPart, setup: SetUp | Problem, keep_solid: KeepSolid | None
 
     chosen, kept, loose, cavities, whole, kept_volumes = _clean(mesh)
     cleaned, cleaned_ids = _subset(mesh, chosen), ids[chosen]
+    cleaned, cleaned_ids, joined = _single_precision(cleaned, cleaned_ids, exact)
+    smoothing = {**smoothing, "float32_vertices_joined": float(joined)}
     gates.append(Gate("envelope", exact.envelope_numbers["bodies"] == 1.0, exact.envelope_numbers,
                       f"the envelope (design and solid regions joined) is {int(exact.envelope_numbers['bodies'])} "
                       "body"))  # fmt: skip
@@ -1125,6 +1198,7 @@ __all__ = [
     "LevelOffTarget",
     "LoosePiece",
     "MeshRefused",
+    "StlRefused",
     "StlRounding",
     "finish",
 ]

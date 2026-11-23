@@ -89,6 +89,41 @@ def test_a_delivered_part_that_differs_makes_the_run_exit_1(tmp_path, monkeypatc
     assert (tmp_path / "out" / "part.stl").is_file()
 
 
+def _refuse_stl(path, mesh):
+    # Stands in for write_stl on a mesh whose float32 coordinates would not read back closed.
+    raise michell.errors.InvalidValue("the mesh is closed, but as float32 coordinates it would not read back closed")
+
+
+def test_a_refused_stl_leaves_the_3mf_and_the_result_written(tmp_path, monkeypatch):
+    file = write(tmp_path, edited(BAR, "max_fraction = 0.5\n", MESH))
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "part.stl").write_bytes(b"an earlier run's file")
+    monkeypatch.setattr(problem_file, "write_stl", _refuse_stl)
+    with pytest.warns(part_mesh.StlRefused, match="part.stl is not written"):
+        outcome = michell.run(file)
+    assert outcome.limits_met and outcome.finished is not None and not outcome.mesh_delivered
+    assert "would not read back closed" in outcome.stl_refused
+    assert set(outcome.paths) == {"json", "npz", "3mf"}
+    assert {path.name for path in (tmp_path / "out").iterdir()} == {"result.json", "result.npz", "part.3mf"}
+    three_mf = read_3mf(outcome.paths["3mf"])
+    assert np.array_equal(three_mf.vertices, outcome.finished.mesh.vertices)
+    result = michell.read_result(tmp_path / "out" / "result")
+    assert result["mesh"]["written"] and result["mesh"]["stl_refused"] == outcome.stl_refused
+    assert result["files"] == ["result.json", "result.npz", "part.3mf"]
+    assert any(w["category"] == "StlRefused" for w in result["warnings"])
+
+
+def test_a_refused_stl_ends_the_command_normally_and_says_so(tmp_path, monkeypatch, capsys):
+    file = write(tmp_path, edited(BAR, "max_fraction = 0.5\n", MESH))
+    monkeypatch.setattr(problem_file, "write_stl", _refuse_stl)
+    status = cli.main(["run", str(file)])
+    out = capsys.readouterr().out
+    assert status == cli.LIMITS_NOT_MET
+    assert "warning (StlRefused)" in out and "part.stl not written:" in out and "(part.3mf is written)" in out
+    assert (tmp_path / "out" / "part.3mf").is_file() and not (tmp_path / "out" / "part.stl").exists()
+    assert (tmp_path / "out" / "result.json").is_file()
+
+
 @pytest.mark.parametrize(
     ("value", "code", "path"),
     [

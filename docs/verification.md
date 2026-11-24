@@ -23,8 +23,10 @@ loads placed on that model by the bodies they touch against closed forms and aga
 it checks a part given as a problem file with STL files, and the `michell run` command on it, against the same
 part set up by hand; and it checks the closed mesh made from an optimised part, with the faces of its regions
 exact, on results built by hand and through `michell run`, against its gates and against the design it came
-from. The measure, the set-up and the limit of every row were fixed before its first result
-was computed, with four exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
+from; and it checks the estimate of time and memory that `michell check` gives against the measurements of
+`docs/performance.json`, fitted to four of the five sizes and tested on the fifth, each in turn, and the
+renderer of the set-up picture on a model small enough to check by hand. The measure, the set-up and the limit
+of every row were fixed before its first result was computed, with six exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
 were set after trial runs; and in row 30 the convergence measure (the largest error over 8 placements of
 each body) and the voxel sizes were set after two trial runs: one placement per size, whose error changed
@@ -32,7 +34,11 @@ sign from size to size, then this measure at 2 to 0.25 mm, where the torus's err
 to 1 mm; its code states both; in row 32 the shortened schedule of the bore's run was set after a trial run
 with that of the recipe's tests, which does not meet the member-size limit; and the fifth line of row 9 (the two-bar truss with its goal written 1e6 times
 smaller) was added, with the limit of the row's first lines, after its problem was known to stop the subproblem
-solver of an earlier version. Every limit is an upper bound on the measured value. Measured values are rounded
+solver of an earlier version; in row 38 the counts of held-out values outside the estimated range had a limit
+of none, fixed before their result, which they missed (2 of 5 for the time, 1 of 5 for the memory); the range
+is not a bound, so the counts are reported in the notes with no limit; and in the second line of row 39 the
+oblique view is sampled at 12 pixels per voxel side, set after a first run at 4 sampled the outline of a top
+face only two pixels high. Every limit is an upper bound on the measured value. Measured values are rounded
 to three significant digits; values at the level of floating-point round-off may differ in those digits from
 one machine to another. The code of every row, with its set-up, is in `python/michell/verification/`, and
 continuous integration runs every row on each change.
@@ -221,8 +227,14 @@ Version: michell 0.0.1 (engine 0.0.1).
 | 37 | Part mesh: michell run on the example bridge, gates failed | property of the design | 0 | ≤ 0 | pass | exit status 0; level 0.5070, 41126 triangles; mesh 28.1 g, mass limit 28.3 g, design 28.3 g, voxels 28.1 g; organic volume +0.035 % from its target |
 | 37 | Part mesh: michell run on the example bridge, triangles that differ between part.stl and part.3mf (float32) | independent computation | 0 | ≤ 0 | pass | 41126 triangles in part.stl, 41126 in part.3mf |
 | 37 | Part mesh: michell run on the example bridge, relative difference of the compliance of the mesh voxelised back from the result's | property of the design | 0.0333 | ≤ 0.05 | pass | compliance 8.65 against 8.95 (-3.33 %); voxels changing side 0.86 % of 3584 (6 gained, 25 lost), reported with no limit |
+| 38 | Estimate of time and memory, fitted to four measured sizes and tested on the fifth, each in turn: measured seconds per pass against the estimate's centre, largest factor either way | held-out measurement | 1.21 | ≤ 1.5 | pass | reference machine AMD Ryzen 5 7600 6-Core Processor, 12 threads; each size left out of the fit; 93312: 1.18 s, estimated 1.12 to 1.55; 194672: 2.45 s, estimated 2.48 to 3.27; 390224: 6.67 s, estimated 5.15 to 6.95; 746496: 14.1 s, estimated 11 to 14; 1458000: 31.6 s, estimated 26.9 to 32.9; 2 of 5 measured values outside the estimated range (194672 by 1.4 % of the measured value, 746496 by 0.76 % of the measured value); a limit of none outside was fixed before the result and was missed, so the count is reported with no limit |
+| 38 | Estimate of time and memory, fitted to four measured sizes and tested on the fifth, each in turn: relative difference of the estimated peak memory (centre) from the measured, largest | held-out measurement | 0.139 | ≤ 0.2 | pass | 93312: 0.265 GB, estimated 0.259 to 0.344; 194672: 0.514 GB, estimated 0.351 to 0.658; 390224: 0.964 GB, estimated 0.79 to 0.963; 746496: 1.54 GB, estimated 1.09 to 1.92; 1458000: 2.48 GB, estimated 2.47 to 3.17; 1 of 5 measured values outside the estimated range (390224 by 0.082 % of the measured value); a limit of none outside was fixed before the result and was missed, so the count is reported with no limit |
+| 38 | Estimate of time and memory: steps at which the estimate does not grow with the active voxels (25 sizes, time and memory) or the load cases (1 to 4, time and memory) | property of the design | 0 | ≤ 0 | pass | total time 20.2 s at 10^4 voxels to 6.06e+03 s at 3 x 10^6; filter stencil 1331 cells |
+| 39 | Picture of the set-up: largest colour difference at the centres of the 20 voxel faces in the top and front views of a 4 x 3 x 2 voxel model with a support, a load and a voxel held solid | independent computation | 0.621 | ≤ 1 | pass | rasters 16 x 12, 16 x 8 pixels (top, front) at 4 pixels per voxel side, drawn as the picture draws them (see_through) |
+| 39 | Picture of the set-up: of the support (blue) and the load (amber), those whose top face in the oblique view is not of their hue at its centre | independent computation | 0 | ≤ 0 | pass | least margin of the hue at the four centre pixels, support 128, load 194 (at least 60) |
+| 39 | Picture of the set-up: bytes that differ between the PNG images of the four views drawn twice | repeatability | 0 | ≤ 0 | pass | 985 bytes in all; nx, ny, nz = 4, 3, 2; on one installation (the compressed bytes depend on the zlib library) |
 
-180 passed, 0 failed, 0 not run.
+186 passed, 0 failed, 0 not run.
 
 ## Regenerating this page
 

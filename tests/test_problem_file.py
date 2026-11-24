@@ -650,7 +650,7 @@ def test_write_result_keeps_format_1_without_a_record_and_refuses_a_clash(tmp_pa
 
 
 def test_check_prints_the_set_up(bar, capsys):
-    assert cli.main(["check", str(bar)]) == 0
+    assert cli.main(["check", str(bar), "--no-timing"]) == 0
     out = capsys.readouterr().out
     assert "grid: 12 x 6 x 6 voxels of 1 mm" in out
     assert "supports[0] on marker body 'wall'" in out
@@ -658,7 +658,7 @@ def test_check_prints_the_set_up(bar, capsys):
 
 
 def test_check_json_is_one_json_object(bar, capsys):
-    assert cli.main(["check", str(bar), "--json"]) == 0
+    assert cli.main(["check", str(bar), "--json", "--no-timing"]) == 0
     out = capsys.readouterr().out
     data = json.loads(out)
     assert data["command"] == "check" and data["exit"] == 0
@@ -754,7 +754,9 @@ def test_run_refused_before_the_first_pass_exits_with_2(tmp_path, capsys):
 
 def test_the_command_runs_as_a_program(bar):
     finished = subprocess.run(
-        [sys.executable, "-m", "michell.cli", "check", str(bar), "--json"], capture_output=True, text=True
+        [sys.executable, "-m", "michell.cli", "check", str(bar), "--json", "--no-timing"],
+        capture_output=True,
+        text=True,
     )
     assert finished.returncode == 0, finished.stderr
     assert json.loads(finished.stdout)["prepared"]["problem_file"]["name"] == "part.toml"

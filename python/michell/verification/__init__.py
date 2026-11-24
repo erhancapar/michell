@@ -46,7 +46,10 @@ by hand: solid regions nested in, overlapping and touching the design region, th
 and the wall of a void cylinder, and the refusals of a detached lump and of a region that cannot be joined.
 Row 37 checks it on optimised parts: the held skin of row 32's bore inside the mesh after a short run, and
 ``michell run`` on the example bridge, which writes ``part.stl`` and ``part.3mf`` (it reads the example's
-folder and reports "not run" when it is absent).
+folder and reports "not run" when it is absent). Row 38 checks the estimate of time and memory that
+``michell check`` gives (``michell.estimate``) against the measurements of each size left out of its fit, and
+that it grows with the problem; row 39 checks the renderer of the set-up picture (``michell.picture``) on a model small
+enough to check by hand.
 """
 
 from __future__ import annotations
@@ -106,6 +109,7 @@ from michell.verification.optimisation_rows import row_7_gradients, row_8_mbb_wi
 from michell.verification.problem_file_rows import row_33_problem_file, row_33_run
 from michell.verification.recipe_rows import row_28_recipe_bridge
 from michell.verification.robust_rows import row_21_projection, row_22_robust_gradients, row_23_robust_mbb
+from michell.verification.check_rows import row_38_estimate, row_39_picture
 from michell.verification.part_mesh_rows import row_36_part_mesh, row_37_bore, row_37_bridge
 from michell.verification.surface_rows import row_34_iso_surface, row_35_smoothing_and_3mf
 
@@ -117,7 +121,7 @@ def examples_beside(reference: Path | str | None) -> Path | None:
 
 
 def all_rows(reference: Path | str | None = None, examples: Path | str | None = None) -> list[Row]:
-    """Runs rows 1 to 37 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
+    """Runs rows 1 to 39 in order. ``reference`` is the folder that holds ``top88/`` and ``calculix/`` (in
     the repository: ``tests/reference``); ``examples`` the folder that holds ``bridge_file/`` (in the
     repository: ``examples``), by default the folder ``examples`` two levels above ``reference`` (the
     repository's, when ``reference`` is ``tests/reference``)."""
@@ -173,6 +177,8 @@ def all_rows(reference: Path | str | None = None, examples: Path | str | None = 
     rows += row_36_part_mesh()
     rows += row_37_bore()
     rows += row_37_bridge(examples)
+    rows += row_38_estimate()
+    rows += row_39_picture()
     return rows
 
 
@@ -236,4 +242,6 @@ __all__ = [
     "row_36_part_mesh",
     "row_37_bore",
     "row_37_bridge",
+    "row_38_estimate",
+    "row_39_picture",
 ]

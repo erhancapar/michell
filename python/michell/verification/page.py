@@ -30,8 +30,10 @@ loads placed on that model by the bodies they touch against closed forms and aga
 it checks a part given as a problem file with STL files, and the `michell run` command on it, against the same
 part set up by hand; and it checks the closed mesh made from an optimised part, with the faces of its regions
 exact, on results built by hand and through `michell run`, against its gates and against the design it came
-from. The measure, the set-up and the limit of every row were fixed before its first result
-was computed, with four exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
+from; and it checks the estimate of time and memory that `michell check` gives against the measurements of
+`docs/performance.json`, fitted to four of the five sizes and tested on the fifth, each in turn, and the
+renderer of the set-up picture on a model small enough to check by hand. The measure, the set-up and the limit
+of every row were fixed before its first result was computed, with six exceptions, stated in their notes: in row 27 the measure and its 5 % limit were fixed before
 any run, while the member size, the mass fraction, the 10 % tolerance on the limit's bound and the 10 % guard
 were set after trial runs; and in row 30 the convergence measure (the largest error over 8 placements of
 each body) and the voxel sizes were set after two trial runs: one placement per size, whose error changed
@@ -39,7 +41,11 @@ sign from size to size, then this measure at 2 to 0.25 mm, where the torus's err
 to 1 mm; its code states both; in row 32 the shortened schedule of the bore's run was set after a trial run
 with that of the recipe's tests, which does not meet the member-size limit; and the fifth line of row 9 (the two-bar truss with its goal written 1e6 times
 smaller) was added, with the limit of the row's first lines, after its problem was known to stop the subproblem
-solver of an earlier version. Every limit is an upper bound on the measured value. Measured values are rounded
+solver of an earlier version; in row 38 the counts of held-out values outside the estimated range had a limit
+of none, fixed before their result, which they missed (2 of 5 for the time, 1 of 5 for the memory); the range
+is not a bound, so the counts are reported in the notes with no limit; and in the second line of row 39 the
+oblique view is sampled at 12 pixels per voxel side, set after a first run at 4 sampled the outline of a top
+face only two pixels high. Every limit is an upper bound on the measured value. Measured values are rounded
 to three significant digits; values at the level of floating-point round-off may differ in those digits from
 one machine to another. The code of every row, with its set-up, is in `python/michell/verification/`, and
 continuous integration runs every row on each change."""

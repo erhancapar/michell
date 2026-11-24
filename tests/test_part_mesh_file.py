@@ -32,7 +32,7 @@ def test_check_says_what_will_be_written(tmp_path, capsys):
     output = prepared.summary()["output"]
     assert output["mesh"] == ["stl", "3mf"] and output["folder"] == str(tmp_path / "out")
     assert output["files"] == ["result.json", "result.npz", "part.stl", "part.3mf"]
-    assert cli.main(["check", str(file)]) == 0
+    assert cli.main(["check", str(file), "--no-timing"]) == 0
     assert f"run writes into {tmp_path / 'out'}: result.json, result.npz, part.stl, part.3mf" in capsys.readouterr().out
 
 

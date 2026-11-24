@@ -4,9 +4,10 @@ TOML file, with the geometry beside it as STL files. The format is described in
 
 - ``read(path)``: the file read and checked into a ``ProblemFile``, a plain description with every value
   typed and every geometry file found. Nothing is computed.
-- ``prepare(path, *, threads=None)``: the geometry read, the voxel model built (``michell.regions``) and the
-  supports and loads placed on it (``michell.attach.set_up``), with the mass bound and the member size, as a
-  ``Prepared``: everything ``michell check`` shows. It solves nothing.
+- ``prepare(path, *, threads=None, timing=False)``: the geometry read, the voxel model built
+  (``michell.regions``) and the supports and loads placed on it (``michell.attach.set_up``), with the mass
+  bound, the member size and the estimate of time and memory (``michell.estimate``), as a ``Prepared``:
+  everything ``michell check`` shows. It solves nothing.
 - ``run(path, *, out=None, threads=None, callback=None)``: ``prepare``, then ``SetUp.stiff_part`` (every run
   is the two-step procedure of ``michell.recipes.stiff_part``), then, when ``[output] mesh`` asks for it,
   the part's mesh (``michell.part_mesh.finish``), and the outcome written to the output folder
@@ -36,6 +37,7 @@ from pathlib import Path
 import numpy as np
 
 from michell.attach import FACES, Attachment, Case, Load, SetUp, Support, set_up
+from michell.estimate import Estimate, estimate
 from michell.errors import (
     DuplicateName,
     InvalidToml,
@@ -702,6 +704,8 @@ class Prepared:
       whole part (every active voxel solid) and of the voxels held solid, between which the bound lies.
     - ``size_mm``: the member size; ``size_given``: whether the file gave it (else five voxel sides).
     - ``threads``; ``warnings``: the warnings given while preparing (``WarningRecord``); ``seconds``.
+    - ``estimate``: the estimate of the run's time and peak memory (``michell.estimate.Estimate``), scaled
+      to this machine by a short timing when ``prepare`` was asked to time, else the reference machine's.
 
     ``summary()`` gives all of it as plain data (what ``michell check --json`` prints).
     """
@@ -719,13 +723,14 @@ class Prepared:
     threads: int
     warnings: tuple[WarningRecord, ...]
     seconds: float
+    estimate: Estimate
 
     def summary(self) -> dict:
         """The prepared problem as plain data: ``problem_file``, ``geometry``, ``grid``, ``volumes`` and
         ``set_up`` (bodies, material, goal, mass limit, member size, supports, loads, filter faces,
         threads), ``output`` (the folder, the files ``run`` will write, the fields and the mesh files asked
-        for) and
-        ``warnings``. Numbers that are not finite are None."""
+        for), ``estimate`` (``michell.estimate.Estimate.as_dict``) and ``warnings``. Numbers that are not
+        finite are None."""
         pf, model, setup = self.problem_file, self.model, self.set_up
         mass = {
             "module": "mass",
@@ -779,6 +784,7 @@ class Prepared:
             },
             "output": {"folder": str(pf.output), "files": list(pf.files), "fields": list(pf.fields),
                        "mesh": list(pf.mesh)},
+            "estimate": self.estimate.as_dict(),
             "warnings": [w.as_dict() for w in self.warnings],
         }
         return _plain(summary)
@@ -861,7 +867,7 @@ def _threads(threads, pf: ProblemFile) -> int:
     return threads
 
 
-def _prepare(file, threads=None) -> Prepared:
+def _prepare(file, threads=None, timing: bool = False) -> Prepared:
     started = time.perf_counter()
     pf = file if isinstance(file, ProblemFile) else read(file)
     threads = _threads(threads, pf)
@@ -936,10 +942,19 @@ def _prepare(file, threads=None) -> Prepared:
         threads=threads,
         warnings=_recorded(caught),
         seconds=time.perf_counter() - started,
+        estimate=estimate(
+            n_active,
+            int(grid.n_elements),
+            size_mm / pf.voxel_mm,
+            len(pf.load_cases),
+            threads,
+            timed=timing,
+            largest=max(grid.nx, grid.ny, grid.nz),
+        ),
     )
 
 
-def prepare(file: str | os.PathLike | ProblemFile, *, threads: int | None = None) -> Prepared:
+def prepare(file: str | os.PathLike | ProblemFile, *, threads: int | None = None, timing: bool = False) -> Prepared:
     """Read the problem file ``file`` (``read``), read its STL files, build the voxel model
     (``michell.regions.voxel_model``) and place the supports and loads (``michell.attach.set_up``), on
     ``threads`` threads (the file's ``[run] threads`` by default). Nothing is solved.
@@ -953,8 +968,12 @@ def prepare(file: str | os.PathLike | ProblemFile, *, threads: int | None = None
     set-up, with the refusals of ``michell.mesh``, ``michell.regions`` and ``michell.attach`` (code
     ``invalid_input``, with ``path`` set to the entry that caused it) and the engine's ``singular_system``
     when a body of the part is not held. Warnings given on the way (``VoxelVolumeDiffers``,
-    ``LoadOnSupport``) are kept in ``Prepared.warnings`` and issued again."""
-    prepared = _prepare(file, threads)
+    ``LoadOnSupport``) are kept in ``Prepared.warnings`` and issued again.
+
+    ``Prepared.estimate`` estimates the run's time and peak memory (``michell.estimate``): for the reference
+    machine of the measurements, or, with ``timing``, scaled to this machine by a timing of about a second
+    on ``threads`` threads."""
+    prepared = _prepare(file, threads, timing)
     _reissue(prepared.warnings)
     return prepared
 

@@ -92,7 +92,7 @@ from michell.modules import Filter, Partials, Response
 from michell.oc import OptimalityCriteria
 from michell.optimise import Limit, LimitNotMet, Pass, Result, optimise
 from michell.problem import LoadCase, Material, Problem
-from michell import attach, export, mesh, part_mesh, problem_file, recipes, regions, select, surface
+from michell import attach, estimate, export, mesh, part_mesh, picture, problem_file, recipes, regions, select, surface
 from michell.attach import Case, Load, LoadOnSupport, SetUp, Support, set_up
 from michell.export import read_result, write_result, write_vtk
 from michell.mesh import Mesh, read_3mf, read_stl, write_3mf, write_stl
@@ -178,6 +178,7 @@ __all__ = [
     "element_stiffness",
     "element_stiffness_3d",
     "engine_version",
+    "estimate",
     "export",
     "finish",
     "iso_surface",
@@ -187,6 +188,7 @@ __all__ = [
     "on",
     "optimise",
     "part_mesh",
+    "picture",
     "prepare",
     "problem_file",
     "read_3mf",

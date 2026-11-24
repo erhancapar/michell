@@ -1,13 +1,16 @@
 """The ``michell`` command.
 
-    michell check FILE [--threads N] [--json]
+    michell check FILE [--threads N] [--json] [--no-timing] [--picture SVG]
     michell run FILE [--out DIR] [--threads N] [--json]
     michell --version
 
-``check`` reads a problem file, builds the voxel model and places the supports and loads, and prints what it
-found; it solves nothing (``michell.problem_file.prepare``). ``run`` does the same, then the optimisation,
-and writes the outcome (``michell.problem_file.run``). With ``--json`` the standard output holds one JSON
-object and nothing else; the line printed after every pass of ``run`` then goes to standard error.
+``check`` reads a problem file, builds the voxel model and places the supports and loads, and prints what it found
+with an estimate of the run's time and peak memory; it solves nothing (``michell.problem_file.prepare``). The
+estimate is scaled to this machine by a timing of about a second on the problem's threads, unless ``--no-timing``
+asks for the reference machine's (``michell.estimate``). ``--picture`` writes a picture of the voxel model with
+its supports and loads (``michell.picture``). ``run`` does the same (with the reference machine's estimate), then
+the optimisation, and writes the outcome (``michell.problem_file.run``). With ``--json`` the standard output holds
+one JSON object and nothing else; the line printed after every pass of ``run`` then goes to standard error.
 
 Exit status: 0 when the file is accepted (``check``) or the run met its limits and delivered the mesh asked
 for (``run``); 1 when the run finished but a limit is not met or the delivered mesh differs (the part's
@@ -29,9 +32,10 @@ import warnings
 
 from michell import __version__, engine_version
 from michell._engine import EngineError
-from michell.errors import _Refused
+from michell.errors import OutOfRange, _Refused
 from michell.export import _plain
 from michell.part_mesh import DELIVERED_TOLERANCE
+from michell.picture import write_picture
 from michell.problem_file import Prepared, RunOutcome, _optimise, _prepare
 
 LIMITS_MET, LIMITS_NOT_MET, REFUSED, ENGINE_FAILED = 0, 1, 2, 3
@@ -58,8 +62,9 @@ def _numbers(values, unit: str = "") -> str:
     return "(" + ", ".join(f"{v:.4g}" for v in values) + ")" + (f" {unit}" if unit else "")
 
 
-def _check_lines(summary: dict) -> list[str]:
-    """The prepared problem for people, one item per line."""
+def _check_lines(summary: dict, with_estimate: bool = True) -> list[str]:
+    """The prepared problem for people, one item per line (the estimate of time and memory too, for
+    ``check``)."""
     grid, set_up = summary["grid"], summary["set_up"]
     nx, ny, nz = grid["counts"]
     lines = [
@@ -108,8 +113,48 @@ def _check_lines(summary: dict) -> list[str]:
     lines.append(f"threads: {set_up['threads']}")
     output = summary["output"]
     lines.append(f"run writes into {output['folder']}: {', '.join(output['files'])}")
+    if with_estimate:
+        lines.extend(_estimate_lines(summary["estimate"]))
     for item in summary["warnings"]:
         lines.append(f"warning ({item['category']}): {item['message']}")
+    return lines
+
+
+def _duration(seconds: float) -> str:
+    if seconds < 10:
+        return f"{seconds:.2g} s"
+    if seconds < 120:
+        return f"{seconds:.0f} s"
+    if seconds < 7200:
+        return f"{seconds / 60:.0f} min"
+    return f"{seconds / 3600:.1f} h"
+
+
+def _estimate_lines(estimate: dict) -> list[str]:
+    """The estimate of time and memory, with where it comes from."""
+    per_pass, total, memory = estimate["seconds_per_pass"], estimate["total_seconds"], estimate["peak_memory_gb"]
+    reference = estimate["reference"]
+    machine = f"{reference['cpu']} on {reference['threads']} threads"
+    if estimate["scaled"]:
+        timing = estimate["timing"]
+        source = (
+            f"scaled to this machine by a {timing['seconds']:.2g} s timing on {timing['threads']} thread(s) "
+            f"(solve x{timing['solve_ratio']:.3g}, filter x{timing['filter_ratio']:.3g} of the reference, {machine})"
+        )
+    else:
+        source = f"for the reference machine ({machine}), not scaled to this one"
+    lines = [
+        f"estimate, {source}:",
+        f"  {per_pass['low']:.3g} to {per_pass['high']:.3g} s per pass (centre {per_pass['centre']:.3g}); "
+        f"{estimate['passes']} passes in {_duration(total['low'])} to {_duration(total['high'])} "
+        f"(centre {_duration(total['centre'])}); not counting the mesh of the part",
+        f"  peak memory {memory['low']:.3g} to {memory['high']:.3g} GB (centre {memory['centre']:.3g})",
+    ]
+    if not estimate["within_measured"]:
+        lines.append(
+            "warning (estimate): outside what was measured, so less sure than its range: "
+            + "; ".join(estimate["outside"])
+        )
     return lines
 
 
@@ -158,22 +203,32 @@ def _pass_line(step: str, number: int, record) -> str:
     return f"{step:11} pass {number:3}, beta {record.beta:4g}: compliance {record.goal:.5g} N mm, limits {limits}"
 
 
-def _prepared(args) -> Prepared:
+def _prepared(args, timing: bool = False) -> Prepared:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # kept in Prepared.warnings and printed from there
-        return _prepare(args.file, args.threads)
+        return _prepare(args.file, args.threads, timing)
 
 
 def _check(args) -> int:
     try:
-        prepared = _prepared(args)
+        prepared = _prepared(args, timing=not args.no_timing)
     except EngineError as error:
         return _refused(args, "check", error)
     summary = prepared.summary()
+    if args.picture is not None:
+        try:
+            summary["picture"] = str(write_picture(prepared, args.picture))
+        except OSError as error:
+            refused = OutOfRange(
+                f"the picture {args.picture!r} cannot be written: {error.strerror or error}", "", args.file
+            )
+            return _refused(args, "check", refused)
     if args.json:
         print(json.dumps({"command": "check", "exit": 0, "prepared": summary}, allow_nan=False))
     else:
         print("\n".join(_check_lines(summary)))
+        if args.picture is not None:
+            print(f"picture of the set-up written to {summary['picture']}")
     return 0
 
 
@@ -193,7 +248,7 @@ def _run(args) -> int:
         return _refused(args, "run", error)
     out = sys.stderr if args.json else sys.stdout
     if not args.json:
-        print("\n".join(_check_lines(prepared.summary())), file=out)
+        print("\n".join(_check_lines(prepared.summary(), with_estimate=False)), file=out)
 
     def show(step, number, record):
         print(_pass_line(step, number, record), file=out, flush=True)
@@ -257,6 +312,12 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("file", help="the problem file (TOML)")
         command.add_argument("--threads", type=int, metavar="N", help="threads (default: the file's [run] threads)")
         command.add_argument("--json", action="store_true", help="print one JSON object, nothing else")
+    check.add_argument(
+        "--no-timing",
+        action="store_true",
+        help="skip the short timing that scales the estimate to this machine (give the reference machine's)",
+    )
+    check.add_argument("--picture", metavar="SVG", help="write a picture of the set-up to this SVG file")
     run.add_argument("--out", metavar="DIR", help="the output folder (default: the file's [output] folder)")
     args = parser.parse_args(argv)
     if args.command is None:
